@@ -151,7 +151,7 @@ def upd_wts(lr, wts, inp, true_lbl, n_layers, inp_dim):
 def calc_acc(test_inp, test_lbl, wts, n_layers, inp_dim):
   acts, out, pred = forw_prop(test_inp, wts, n_layers, inp_dim)
   assert test_lbl.shape == pred.shape # Ensure shapes match
-  test_lbl = np.armax(test_lbl, axis=0) # Convert one-hot labels to index
+  test_lbl = np.argmax(test_lbl, axis=0) # Convert one-hot labels to index
   pred = np.argmax(pred, axis=0) # Get predicted class
   correct = np.sum(test_lbl==pred) # Count correct predictions
   acc = correct/test_lbl.shape[0] # Compute accuracy
