@@ -14,8 +14,17 @@ Dataset: The Fashion MNIST dataset consists of grayscale images of ten different
 8. Sneaker
 9. Bag
 10. Ankleboot
+
 The dataset is loaded from tensorflow.keras.datasets .
 
-# Question-2:
-Implements a Feedforward neural network from scratch. first, it defines the activation functions:
+# Question-2: Overview
+Implements a Feedforward neural network from scratch using numpy which takes images from Fashion MNIST dataset as input and outputs a probability distribution over the 10 classes. The network supports different activation functions, weight initialization methods and multiple hidden layers. It is enough flexible such that it is easy to change the number of hidden layers and the number of neurons in each hidden layer.
+
+Features:
+1. Implements three activation functions (Sigmoid, Relu, Tanh) and their derivatives which required for backpropagation.
+2. Defines softmax function  which converts logits into probabilities for multiclass classification.
+3. Used two weight initialization ('random' or 'xavier') which initializes weights and biases using either 'random' or 'xavier' initialization..
+4. Implements forward propagation through hidden layers to compute activations and final output layer using softmax to compute predictions.
+
+Then loads Fashion MNIST data and preprocesses it by normalizing and flattening images, and converts labels into one-hot encoded format. After that initializes the neural network with 5 hidden layers and 128 neurons per layer, then runs forward propagation on a single sample and outputs the predicted class probabilities.
 
