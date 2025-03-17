@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from keras.datasets import fashion_mnist
+from tensorflow.keras.datasets import fashion_mnist
 from sklearn.model_selection import train_test_split
 
 # Initialize WandB project
@@ -28,7 +28,7 @@ wandb.init(project='DA6401_Assignment-1')
 (train_img, train_lbl), (test_img, test_lbl) = fashion_mnist.load_data()
 
 # Define class names for labels
-class_names = ['Top/Tshirt', 'Pullover', 'Trouser', 'Shirt', 'Coat', 'Dress', 'Sandal', 'Sneaker', 'Ankle-boot', 'Bag']
+class_names = ['Top/Tshirt', 'Trouser', 'Pullover', 'Dress', 'Coat', 'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle-boot']
 
 # Select one sample image for each class
 samples = {}
@@ -64,178 +64,29 @@ wandb.log({"Examples": [wandb.Image(plot_sample(0), caption="Step 0"),
 # Finish WandB run
 wandb.finish()
 
-"""## Question-2"""
+"""## Question-2 : Feedforward Neural Network
 
-# Activation function (Sigmoid)
-def act(x):
-  return 1/(1+np.exp(-x))  # Converts input into a range between 0 and 1
+"""
 
-# Derivative of Sigmoid, used in backpropagation to compute gradients
-def act_der(x):
-  return act(x)*(1-act(x))
+# Function to apply the chosen activation function
+def activation_function(x, func_type):
+    """Return the output of the specified activation function."""
+    if func_type == 'sigmoid':
+        return 1 / (1+np.exp(-x))
+    elif func_type == 'relu':
+        return np.maximum(0, x)
+    else:
+        return np.tanh(x)
 
-# Softmax function, converts output layer activations into probabilities
-def soft_func(x):
-  x = x-np.max(x) # Normalize values to prevent overflow
-  return np.exp(x)/np.sum(np.exp(x), axis=0)
-
-# Initialize neural network weights and biases
-def initnet(n_layers, nodes, init_m, inp_dim, out_dim):
-  """
-    Initializes the neural network weights and biases.
-
-    Parameters:
-    - n_layers: Number of hidden layers
-    - nodes: List of nodes in each hidden layer
-    - init_m: Weight initialization method ('rand' or 'xav')
-    - inp_dim: Input dimension
-    - out_dim: Output dimension
-
-    Returns:
-    - Dictionary containing initialized weights and biases
-    """
-  net_size = []
-  for i in range(n_layers):
-    net_size.append(nodes)
-
-  size = [inp_dim]+net_size+[out_dim]  # Define the structure of the network
-  wts = {}  # Dictionary to store weights and biases
-
-  if init_m == 'rand': # Random weight initialization
-    for i in range(1, n_layers+2):
-      wts['W'+str(i)] = np.random.randn(size[i],size[i-1])
-      wts['b'+str(i)] = np.random.randn(size[i],1)
-  elif init_m == 'xav': # Xavier initialization for better weight scaling
-    for i in range(1, n_layers+2):
-      wts['W'+str(i)] = np.random.randn(size[i],size[i-1])*(np.sqrt(2/size[i-1]))
-      wts['b'+str(i)] = np.random.randn(size[i],1)*(np.sqrt(2/size[i-1]))
-
-  return wts
-
-# Forward propagation - calculates activations layer by layer
-def forwprop(inp,wts, n_layers, inp_dim):
-  """
-    Performs forward propagation.
-
-    Parameters:
-    - inp: Input data
-    - wts: Weights dictionary
-    - n_layers: Number of hidden layers
-    - inp_dim: Input dimension
-
-    Returns:
-    - acts: Dictionary storing activations
-    - out: Dictionary storing outputs at each layer
-    - pred: Output probabilities from the softmax layer
-    """
-  acts = {} # Store activation values
-  acts['a0'] = np.zeros((inp_dim,1)) # Initialize first activation
-  out = {'h0':inp} # Store input layer values
-
-  for i in range(1,n_layers+1): # Iterate through hidden layers
-    acts['a'+str(i)]= np.dot(wts['W'+str(i)], out['h'+str(i-1)]) + wts['b'+str(i)]
-    out['h'+str(i)]= act(acts['a'+str(i)]) # Apply activation function
-  # Output layer processing
-  acts['a'+str(n_layers+1)]= np.dot(wts['W'+str(n_layers+1)], out['h'+str(n_layers)]) + wts['b'+str(n_layers+1)]
-  pred = soft_func(acts['a'+str(n_layers+1)]) # Apply softmax for probabilities
-
-  return acts, out, pred
-
-# Backpropagation - calculates gradients for weight updates
-def backprop(inp, true_lbl, n_layers, wts, inp_dim):
-  """
-    Performs backpropagation to compute gradients.
-
-    Parameters:
-    - inp: Input data
-    - true_lbl: True labels
-    - n_layers: Number of hidden layers
-    - wts: Weights dictionary
-    - inp_dim: Input dimension
-
-    Returns:
-    - grad: Dictionary containing gradients for weight and bias updates
-    """
-  m = inp.shape[0] # Number of examples
-  acts, out, pred = forwprop(inp, wts, n_layers, inp_dim)
-  grad = {} # Store gradients
-  err = {} # Store error terms
-  err['a'+str(n_layers+1)] = -1*(true_lbl.T-pred) # Compute error for output layer
-
-  for i in range(n_layers+1,0,-1): # Iterate backwards through layers
-    grad['W'+str(i)]= (1/m)*np.dot(err['a'+str(i)], out['h'+str(i-1)].T) # Compute weight gradient
-    grad['b'+str(i)]= (1/m)*np.mean(err['a'+str(i)], axis=1, keepdims=True) # Compute bias gradient
-    if i>1:
-      err['h'+str(i-1)]= np.dot(wts['W'+str(i)].T, err['a'+str(i)]) # Propagate error backward
-      err['a'+str(i-1)]= err['h'+str(i-1)]*act_der(acts['a'+str(i-1)]) # Apply derivative of activation
-  return grad
-
-# Gradient Descent with loss tracking
-def upd_wts(lr, wts, inp, true_lbl, n_layers, inp_dim):
-  wandb.init(project='DA6401_Assignment-1', name='GradientDescent')
-  losses= []  # Store losses for each epoch
-  for e in range(100): # Train for 100 epochs
-    grad = backprop(inp, true_lbl, n_layers, wts, inp_dim)
-    for i in range (1, n_layers+2):
-      wts['W'+str(i)] -= lr*grad['W'+str(i)] # Update weights
-      wts['b'+str(i)] -= lr*grad['b'+str(i)] # Update biases
-
-    # Compute loss for this epoch
-    acts, out, pred = forwprop(inp, wts, n_layers, inp_dim)
-    loss = -np.mean(np.sum(true_lbl.T*np.log(pred),axis=0))
-    losses.append(loss)
-    wandb.log({'Epoch': e+1, 'Loss': loss})
-    print(f'Epoch {e+1}, Loss: {loss}')
-
-  # Plot the loss function over epochs
-  plt.plot(losses)
-  plt.xlabel('Epoch')
-  plt.ylabel('Loss')
-  plt.title('Training Loss over Epochs')
-  plt.show()
-
-  wandb.finish()
-  return wts, losses
-
-# Compute accuracy of the model
-def cal_acc(test_inp, test_lbl, wts, n_layers, inp_dim):
-  acts, out, pred = forwprop(test_inp, wts, n_layers, inp_dim)
-  assert test_lbl.shape == pred.shape # Ensure shapes match
-  test_lbl = np.argmax(test_lbl, axis=0) # Convert one-hot labels to index
-  pred = np.argmax(pred, axis=0) # Get predicted class
-  correct = np.sum(test_lbl==pred) # Count correct predictions
-  acc = correct/test_lbl.shape[0] # Compute accuracy
-
-  wandb.log({'Test Accuracy': acc})
-  return acc
-
-"""## Question-3"""
-
-# Activation functions
-def sigmoid(x):
-    """Compute the sigmoid activation function."""
-    return 1 / (1 + np.exp(-x))
-
-def relu(x):
-    """Compute the ReLU activation function."""
-    return np.maximum(0, x)
-
-def tanh(x):
-    """Compute the tanh activation function."""
-    return np.tanh(x)
-
-# Derivatives of activation functions
-def sigmoid_derivative(x):
-    """Compute the derivative of the sigmoid function."""
-    return sigmoid(x) * (1 - sigmoid(x))
-
-def relu_derivative(x):
-    """Compute the derivative of the ReLU function."""
-    return np.where(x <= 0, 0, 1)
-
-def tanh_derivative(x):
-    """Compute the derivative of the tanh function."""
-    return 1 - tanh(x)**2
+# Function to apply the corresponding activation derivative
+def activation_derivative(x, func_type):
+    """Return the derivative of the specified activation function."""
+    if func_type == 'sigmoid':
+        return (1/(1+np.exp(-x))) * (1-(1/(1+np.exp(-x))))
+    elif func_type == 'relu':
+        return np.where(x<=0, 0, 1)
+    else:
+        return 1 - (np.tanh(x))**2
 
 # Softmax function for multi-class classification
 def softmax(x):
@@ -243,31 +94,9 @@ def softmax(x):
     x = x - np.max(x)  # Normalize to prevent numerical instability
     return np.exp(x) / np.sum(np.exp(x), axis=0)
 
-# Function to apply the chosen activation function
-def activation_function(x, func_type):
-    """Return the output of the specified activation function."""
-    if func_type == 'sigmoid':
-        return sigmoid(x)
-    elif func_type == 'relu':
-        return relu(x)
-    else:
-        return tanh(x)
-
-# Function to apply the corresponding activation derivative
-def activation_derivative(x, func_type):
-    """Return the derivative of the specified activation function."""
-    if func_type == 'sigmoid':
-        return sigmoid_derivative(x)
-    elif func_type == 'relu':
-        return relu_derivative(x)
-    else:
-        return tanh_derivative(x)
-
 # Initialize network weights and biases
 def initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim):
-    """
-    Initialize the network parameters (weights and biases) using the specified initialization method.
-
+    """ Initialize the network parameters (weights and biases) using the specified initialization method.
     Args:
         num_layers (int): Number of hidden layers.
         num_neurons (int): Number of neurons in each hidden layer.
@@ -294,27 +123,9 @@ def initialize_network(num_layers, num_neurons, weight_init, input_dim, output_d
 
     return parameters
 
-# Compute cross-entropy loss
-def cross_entropy_loss(y_true, y_pred):
-    """
-    Compute the cross-entropy loss for multi-class classification.
-
-    Args:
-        y_true (numpy array): One-hot encoded true labels.
-        y_pred (numpy array): Predicted probability distribution.
-
-    Returns:
-        float: Cross-entropy loss.
-    """
-    epsilon = 1e-15  # Prevents log(0)
-    y_pred = np.clip(y_pred, epsilon, 1 - epsilon)  # Avoid numerical issues
-    return -np.mean(np.sum(y_true * np.log(y_pred), axis=0))
-
 # Forward propagation
 def forward_propagation(inputs, params, activation, num_layers, input_dim):
-    """
-    Perform forward propagation through the neural network.
-
+    """ Perform forward propagation through the neural network.
     Args:
         inputs (numpy array): Input data.
         params (dict): Dictionary containing weights and biases.
@@ -340,11 +151,60 @@ def forward_propagation(inputs, params, activation, num_layers, input_dim):
 
     return activations, layer_outputs, predictions
 
+# Load Fashion MNIST dataset
+(x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
+
+# Preprocess data
+x_train = x_train.reshape(x_train.shape[0], -1).T / 255.0  # Normalize and flatten
+x_test = x_test.reshape(x_test.shape[0], -1).T / 255.0
+
+# Convert labels to one-hot encoding
+y_train_one_hot = np.eye(10)[y_train].T
+y_test_one_hot = np.eye(10)[y_test].T
+
+# Initialize neural network parameters
+num_layers = 5
+num_neurons = 128
+weight_init = 'xavier'
+input_dim = 784
+output_dim = 10
+activation = 'sigmoid'
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+
+# Run forward propagation on a sample
+sample_input = x_train[:, :1]  # Use a single sample
+target_output = y_train_one_hot[:, :1]
+acts, out, pred = forward_propagation(sample_input, params, activation, num_layers, input_dim)
+
+# Print predicted probabilities
+print("Predicted probabilities:", pred.T)
+
+"""## Question-3 : Backpropagation with Optimisation Algorithms"""
+
+# Compute cross-entropy loss
+def cross_entropy_loss(y_true, y_pred, params, lambda_reg, num_layers):
+    """
+    Compute the cross-entropy loss for multi-class classification.
+
+    Args:
+        y_true (numpy array): One-hot encoded true labels.
+        y_pred (numpy array): Predicted probability distribution.
+        lambda_reg (float): Regularization parameter
+        num_layers (int): Number of hidden layers.
+
+    Returns:
+        float: Cross-entropy loss.
+    """
+    epsilon = 1e-15  # Prevents log(0)
+    y_pred = np.clip(y_pred, epsilon, 1-epsilon)  # Avoid numerical issues
+    loss = -np.mean(np.sum(y_true * np.log(y_pred), axis=0))
+    reg_term = (lambda_reg / 2) * sum(np.sum(params[f'W{i}']**2) for i in range(1, num_layers+2)) # L2 regularization (weight decay)
+    return loss + reg_term
+
 # Backward propagation
-def backward_propagation(inputs, labels, activation, num_layers, params, input_dim):
+def backward_propagation(inputs, labels, activation, num_layers, params, input_dim,lambda_reg):
     """
     Perform backward propagation to compute gradients for weight and bias updates.
-
     Args:
         inputs (numpy array): Input data.
         labels (numpy array): True labels in one-hot encoding.
@@ -352,6 +212,7 @@ def backward_propagation(inputs, labels, activation, num_layers, params, input_d
         num_layers (int): Number of hidden layers.
         params (dict): Dictionary containing weights and biases.
         input_dim (int): Number of input features.
+        lambda_reg (float): Regularization parameter.
 
     Returns:
         dict: Gradients of weights and biases.
@@ -360,11 +221,11 @@ def backward_propagation(inputs, labels, activation, num_layers, params, input_d
     gradients, backprops = {}, {}
 
     # Compute loss gradient w.r.t final layer activation
-    backprops[f'a{num_layers+1}'] = -1 * (labels - predictions)
+    backprops[f'a{num_layers+1}'] = predictions-labels
 
     # Backpropagate through layers
-    for i in range(num_layers + 1, 0, -1):
-        gradients[f'W{i}'] = np.dot(backprops[f'a{i}'], layer_outputs[f'h{i-1}'].T)
+    for i in range(num_layers+1, 0, -1):
+        gradients[f'W{i}'] = np.dot(backprops[f'a{i}'], layer_outputs[f'h{i-1}'].T) + lambda_reg *params[f'W{i}']
         gradients[f'b{i}'] = backprops[f'a{i}']
         backprops[f'h{i-1}'] = np.dot(params[f'W{i}'].T, backprops[f'a{i}'])
         backprops[f'a{i-1}'] = backprops[f'h{i-1}'] * activation_derivative(activations[f'a{i-1}'], activation)
@@ -372,7 +233,7 @@ def backward_propagation(inputs, labels, activation, num_layers, params, input_d
     return gradients
 
 # Compute accuracy on test data
-def compute_accuracy(X_test, Y_test, trained_params, activation, num_layers, input_dim):
+def compute_accuracy(X_test, Y_test, trained_params, activation, num_layers,input_dim):
     """
     Compute classification accuracy on test data.
 
@@ -393,20 +254,19 @@ def compute_accuracy(X_test, Y_test, trained_params, activation, num_layers, inp
     # Iterate over all test samples
     for i in range(num_samples):
         input_sample = X_test[i, :].reshape(-1, 1)
-        _, _, pred = forward_propagation(input_sample, trained_params, activation, num_layers, input_dim)
+        act, out, pred = forward_propagation(input_sample,trained_params, activation, num_layers, input_dim)
 
         # Check if predicted class matches true label
         if np.argmax(Y_test[i, :].reshape(-1, 1)) == np.argmax(pred):
             correct += 1
 
-    return correct / num_samples  # Return accuracy as a fraction
+    return correct/num_samples  # Return accuracy as a fraction
 
 """Stochastic Gradient Descent"""
 
-def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, activation, num_layers, num_neurons, weight_init, batch_size, input_dim, output_dim):
+def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, activation, num_layers, num_neurons, weight_init, batch_size, input_dim, output_dim, weight_decay):
     """
     Perform stochastic gradient descent (SGD) to train a neural network.
-
     Args:
         learning_rate (float): Learning rate for weight updates.
         X_train (numpy array): Training input data.
@@ -421,12 +281,13 @@ def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, act
         batch_size (int): Number of samples per batch update.
         input_dim (int): Number of input features.
         output_dim (int): Number of output classes.
+        weight_decay (float): L2 regularization strength.
 
     Returns:
         dict: Trained network parameters (weights and biases).
     """
     # Initialize the neural network parameters (weights and biases)
-    params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+    params = initialize_network(num_layers, num_neurons,weight_init, input_dim, output_dim)
 
     # List to store loss values over epochs for visualization
     losses = []
@@ -436,7 +297,7 @@ def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, act
 
     for epoch in range(epochs):  # Loop over the number of epochs
         indices = np.arange(num_samples)  # Create an array of sample indices
-        np.random.shuffle(indices)  # Shuffle the indices for stochastic updates
+        np.random.shuffle(indices)  # shuffle the indices for stochastic updates
 
         # Dictionary to accumulate gradients for batch updates
         batch_updates = {key: np.zeros_like(value) for key, value in params.items()}
@@ -447,7 +308,7 @@ def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, act
             label_sample = Y_train[indices[idx], :].reshape(-1, 1)
 
             # Perform backward propagation to compute gradients
-            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
 
             # Accumulate gradients for batch update
             for k in range(1, num_layers + 2):
@@ -464,27 +325,27 @@ def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, act
         train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
 
         # Compute training loss using cross-entropy
-        _, _, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
-        train_loss = cross_entropy_loss(Y_train.T, train_preds)
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
         losses.append(train_loss)  # Store loss for visualization
 
         # Compute validation accuracy
         val_acc = compute_accuracy(X_valid, Y_valid, params, activation, num_layers, input_dim)
 
         # Compute validation loss using cross-entropy
-        _, _, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
-        val_loss = cross_entropy_loss(Y_valid.T, val_preds)
+        act, out, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
+        val_loss = cross_entropy_loss(Y_valid.T, val_preds, params, weight_decay, num_layers)
 
 
         # Print epoch summary
         print(f"Epoch {epoch+1}, Train_Loss: {train_loss:.4f}, Train_Accuracy: {train_acc * 100:.2f}%, Val_Loss: {val_loss:.4f}, Val_Accuracy: {val_acc * 100:.2f}%")
 
         # Log results using Weights & Biases
-        wandb.log({'train_loss': train_loss,
-                   'train_accuracy': train_acc * 100,
-                   'val_loss': val_loss,
-                   'val_accuracy': val_acc * 100,
-                   'epoch': epoch})
+        wandb.log({'Train_loss': train_loss,
+                   'Train_accuracy': train_acc * 100,
+                   'Val_loss': val_loss,
+                   'Val_accuracy': val_acc * 100,
+                   'Epoch': epoch})
 
     # Plot training loss over epochs
     plt.plot(losses)
@@ -497,7 +358,7 @@ def stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, act
 
 """Momentum Based Gradient Descent"""
 
-def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta=0.9):
+def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta,weight_decay):
     """
     Implements the Momentum Optimizer for training a neural network.
         u_t = β * u_(t-1) + ∇w_t
@@ -515,7 +376,8 @@ def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid
         num_layers (int): Number of hidden layers.
         input_dim (int): Number of input features.
         batch_size (int): Number of samples per batch update.
-        beta (float, optional): Momentum coefficient (default: 0.9).
+        beta (float): Momentum coefficient.
+        weight_decay (float): L2 regularization strength.
 
     Returns:
         dict: Updated network parameters after training.
@@ -526,13 +388,13 @@ def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid
 
     # Initialize velocity for momentum updates (same shape as parameters)
     velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
 
     for epoch in range(epochs):  # Iterate over epochs
         num_processed = 0  # Counter for processed samples
         epoch_loss = 0  # Initialize loss for the current epoch
         num_batches = 0  # Count number of batches processed
-        gradient_accumulator = {key: np.zeros_like(value) for key, value in params.items()}  # Accumulate gradients
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}  # Accumulate gradients
 
         for sample_idx in range(num_samples):  # Loop through all training samples
             num_processed += 1  # Increment processed sample counter
@@ -542,12 +404,12 @@ def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid
             label_sample = Y_train[sample_idx, :].reshape(-1, 1)
 
             # Compute gradients using backward propagation
-            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
 
             # Accumulate gradients for weight and bias updates
             for layer in range(num_layers + 1, 0, -1):
-                gradient_accumulator['W' + str(layer)] += gradients['W' + str(layer)]
-                gradient_accumulator['b' + str(layer)] += gradients['b' + str(layer)]
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
 
             # Update weights and biases once the batch is complete
             if num_processed % batch_size == 0:
@@ -555,43 +417,43 @@ def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid
 
                 for layer in range(1, num_layers + 2):
                     # Compute velocity update using momentum
-                    velocity['W' + str(layer)] = beta * prev_velocity['W' + str(layer)] + gradient_accumulator['W' + str(layer)]
-                    velocity['b' + str(layer)] = beta * prev_velocity['b' + str(layer)] + gradient_accumulator['b' + str(layer)]
+                    velocity[f'W{layer}'] = beta * prev_v[f'W{layer}'] + grad_accu[f'W{layer}']
+                    velocity[f'b{layer}'] = beta * prev_v[f'b{layer}'] + grad_accu[f'b{layer}']
 
 
                     # Apply momentum-based update to parameters
-                    params['W' + str(layer)] -= learning_rate * velocity['W' + str(layer)]
-                    params['b' + str(layer)] -= learning_rate * velocity['b' + str(layer)]
+                    params[f'W{layer}'] -= learning_rate * velocity[f'W{layer}']
+                    params[f'b{layer}'] -= learning_rate * velocity[f'b{layer}']
 
                 # Store previous velocity values for the next batch update
-                    prev_velocity['W' + str(layer)] = velocity['W' + str(layer)]
-                    prev_velocity['b' + str(layer)] = velocity['b' + str(layer)]
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
 
         # Compute training accuracy at the end of the epoch
         train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
 
         # Compute training loss using cross-entropy
-        _, _, train_predictions = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
-        train_loss = cross_entropy_loss(Y_train.T, train_predictions)
+        act, out, train_predictions = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_predictions, params, weight_decay, num_layers)
         losses.append(train_loss)  # Store loss for visualization
 
         # Compute validation accuracy
         val_acc = compute_accuracy(X_valid, Y_valid, params, activation, num_layers, input_dim)
 
         # Compute validation loss using cross-entropy
-        _, _, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
-        val_loss = cross_entropy_loss(Y_valid.T, val_preds)
+        act, out, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
+        val_loss = cross_entropy_loss(Y_valid.T, val_preds, params, weight_decay, num_layers)
 
 
         # Print epoch summary
         print(f"Epoch {epoch+1}, Train_Loss: {train_loss:.4f}, Train_Accuracy: {train_acc * 100:.2f}%, Val_Loss: {val_loss:.4f}, Val_Accuracy: {val_acc * 100:.2f}%")
 
         # Log results using Weights & Biases
-        wandb.log({'train_loss': train_loss,
-                   'train_accuracy': train_acc * 100,
-                   'val_loss': val_loss,
-                   'val_accuracy': val_acc * 100,
-                   'epoch': epoch})
+        wandb.log({'Train_loss': train_loss,
+                   'Train_accuracy': train_acc * 100,
+                   'Val_loss': val_loss,
+                   'Val_accuracy': val_acc * 100,
+                   'Epoch': epoch})
 
     # Plot the loss function over epochs
     plt.plot(losses)
@@ -604,11 +466,11 @@ def momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid
 
 """Nesterov Accelerated Gradient Descent"""
 
-def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta=0.9):
+def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta,weight_decay):
     """
     Implements Nesterov Accelerated Gradient (NAG) optimizer for training a neural network.
-        u_t = β * u_(t-1) + ∇(w - η*β * u_(t-1))
-        w_(t+1) = w_t - η * u_t
+        u_t = β * u_(t-1) + ∇(w_t - η*β * u_(t-1))
+        w_(t+1) = w_t - η*u_t
 
     Args:
         learning_rate (float): Learning rate for parameter updates.
@@ -622,7 +484,8 @@ def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, act
         num_layers (int): Number of hidden layers.
         input_dim (int): Number of input features.
         batch_size (int): Number of samples per batch update.
-        beta (float, optional): Momentum coefficient (default: 0.9).
+        beta (float): Momentum coefficient.
+        weight_decay (float): L2 regularization strength.
 
     Returns:
         dict: Updated network parameters after training.
@@ -633,10 +496,10 @@ def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, act
 
     # Initialize velocity for momentum updates (same shape as parameters)
     velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
 
     for epoch in range(epochs):  # Iterate over epochs
-        gradient_accumulator = {key: np.zeros_like(value) for key, value in params.items()}  # Accumulate gradients
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}  # Accumulate gradients
         num_processed = 0  # Counter for processed samples
         num_batches = 0  # Counter for number of batches
         epoch_loss = 0  # Initialize loss for current epoch
@@ -650,16 +513,16 @@ def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, act
 
             # Look ahead by applying momentum before computing gradients
             for layer in range(1, num_layers + 2):
-                params['W' + str(layer)] -= learning_rate * beta * prev_velocity['W' + str(layer)]
-                params['b' + str(layer)] -= learning_rate * beta * prev_velocity['b' + str(layer)]
+                params[f'W{layer}'] -= learning_rate * beta * prev_v[f'W{layer}']
+                params[f'b{layer}'] -= learning_rate * beta * prev_v[f'b{layer}']
 
             # Compute gradients using backward propagation
-            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
 
             # Accumulate gradients for weight and bias updates
             for layer in range(num_layers + 1, 0, -1):
-                gradient_accumulator['W' + str(layer)] += gradients['W' + str(layer)]
-                gradient_accumulator['b' + str(layer)] += gradients['b' + str(layer)]
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
 
             # Update weights and biases after processing a full batch
             if num_processed % batch_size == 0:
@@ -667,43 +530,43 @@ def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, act
 
                 for layer in range(1, num_layers + 2):
                     # Compute velocity update using Nesterov's momentum
-                    velocity['W' + str(layer)] = beta * prev_velocity['W' + str(layer)] + gradient_accumulator['W' + str(layer)]
-                    velocity['b' + str(layer)] = beta * prev_velocity['b' + str(layer)] + gradient_accumulator['b' + str(layer)]
+                    velocity[f'W{layer}'] = beta * prev_v[f'W{layer}'] + grad_accu[f'W{layer}']
+                    velocity[f'b{layer}'] = beta * prev_v[f'b{layer}'] + grad_accu[f'b{layer}']
 
 
                     # Apply velocity-based update to parameters
-                    params['W' + str(layer)] -= learning_rate * velocity['W' + str(layer)]
-                    params['b' + str(layer)] -= learning_rate * velocity['b' + str(layer)]
+                    params[f'W{layer}'] -= learning_rate * velocity[f'W{layer}']
+                    params[f'b{layer}'] -= learning_rate * velocity[f'b{layer}']
 
                 # Store previous velocity values for the next batch update
-                    prev_velocity['W' + str(layer)] = velocity['W' + str(layer)]
-                    prev_velocity['b' + str(layer)] = velocity['b' + str(layer)]
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
 
         # Compute training accuracy after epoch completion
         train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
 
         # Compute training loss using cross-entropy
-        _, _, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
-        train_loss = cross_entropy_loss(Y_train.T, train_preds)
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
         losses.append(train_loss)  # Store loss for visualization
 
         # Compute validation accuracy
         val_acc = compute_accuracy(X_valid, Y_valid, params, activation, num_layers, input_dim)
 
         # Compute validation loss using cross-entropy
-        _, _, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
-        val_loss = cross_entropy_loss(Y_valid.T, val_preds)
+        act, out, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
+        val_loss = cross_entropy_loss(Y_valid.T, val_preds, params, weight_decay, num_layers)
 
 
         # Print epoch summary
         print(f"Epoch {epoch+1}, Train_Loss: {train_loss:.4f}, Train_Accuracy: {train_acc * 100:.2f}%, Val_Loss: {val_loss:.4f}, Val_Accuracy: {val_acc * 100:.2f}%")
 
         # Log results using Weights & Biases
-        wandb.log({'train_loss': train_loss,
-                   'train_accuracy': train_acc * 100,
-                   'val_loss': val_loss,
-                   'val_accuracy': val_acc * 100,
-                   'epoch': epoch})
+        wandb.log({'Train_loss': train_loss,
+                   'Train_accuracy': train_acc * 100,
+                   'Val_loss': val_loss,
+                   'Val_accuracy': val_acc * 100,
+                   'Epoch': epoch})
 
     # Plot the loss function over epochs
     plt.plot(losses)
@@ -716,7 +579,7 @@ def nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, act
 
 """RMSPROP"""
 
-def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon=0.01, beta=0.9):
+def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,weight_decay):
     """
     Implements the RMSprop (Root Mean Square Propagation) optimizer for training a neural network.
         v_t = β * v_(t-1) + (1-β) * (∇w_t)^2
@@ -734,8 +597,9 @@ def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid,
         num_layers (int): Number of hidden layers.
         input_dim (int): Number of input features.
         batch_size (int): Number of samples per batch update.
-        epsilon (float, optional): Small constant to avoid division by zero (default: 0.01).
-        beta (float, optional): Decay rate for the moving average of squared gradients (default: 0.9).
+        epsilon (float): Small constant to avoid division by zero.
+        beta (float, optional): Decay rate for the moving average of squared gradients.
+        weight_decay (float): L2 regularization strength.
 
     Returns:
         dict: Updated network parameters after training.
@@ -746,7 +610,7 @@ def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid,
 
     # Initialize velocity (moving average of squared gradients) for each parameter
     velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
 
     for epoch in range(epochs):  # Iterate through epochs
         num_processed = 0  # Counter for processed samples
@@ -754,7 +618,7 @@ def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid,
         epoch_loss = 0  # Initialize loss for the current epoch
 
         # Initialize gradient accumulator for batch updates
-        gradient_accumulator = {key: np.zeros_like(value) for key, value in params.items()}
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}
 
         for sample_idx in range(num_samples):  # Iterate through all training samples
             num_processed += 1  # Increment processed sample counter
@@ -764,12 +628,12 @@ def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid,
             label_sample = Y_train[sample_idx, :].reshape(-1, 1)
 
             # Compute gradients using backward propagation
-            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
 
             # Accumulate gradients for weight and bias updates
             for layer in range(num_layers + 1, 0, -1):
-                gradient_accumulator['W' + str(layer)] += gradients['W' + str(layer)]
-                gradient_accumulator['b' + str(layer)] += gradients['b' + str(layer)]
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
 
             # Update weights and biases after processing a full batch
             if num_processed % batch_size == 0:
@@ -777,43 +641,43 @@ def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid,
 
                 for layer in range(1, num_layers + 2):
                     # Compute moving average of squared gradients (RMSprop update)
-                    velocity['W' + str(layer)] = beta * prev_velocity['W' + str(layer)] + (1 - beta) * (gradient_accumulator['W' + str(layer)] ** 2)
-                    velocity['b' + str(layer)] = beta * prev_velocity['b' + str(layer)] + (1 - beta) * (gradient_accumulator['b' + str(layer)] ** 2)
+                    velocity[f'W{layer}'] = beta*prev_v[f'W{layer}'] + (1-beta)*(grad_accu[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta*prev_v[f'b{layer}'] + (1-beta)*(grad_accu[f'b{layer}']**2)
 
 
                     # Apply RMSprop update rule to parameters
-                    params['W' + str(layer)] -= (learning_rate / (np.sqrt(velocity['W' + str(layer)] + epsilon))) * gradient_accumulator['W' + str(layer)]
-                    params['b' + str(layer)] -= (learning_rate / (np.sqrt(velocity['b' + str(layer)] + epsilon))) * gradient_accumulator['b' + str(layer)]
+                    params[f'W{layer}'] -= (learning_rate/(np.sqrt(velocity[f'W{layer}']+epsilon))) * grad_accu[f'W{layer}']
+                    params[f'b{layer}'] -= (learning_rate/(np.sqrt(velocity[f'b{layer}']+epsilon))) * grad_accu[f'b{layer}']
 
                 # Store previous velocity values for the next batch update
-                    prev_velocity['W' + str(layer)] = velocity['W' + str(layer)]
-                    prev_velocity['b' + str(layer)] = velocity['b' + str(layer)]
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
 
         # Compute training accuracy after epoch completion
         train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
 
         # Compute training loss using cross-entropy
-        _, _, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
-        train_loss = cross_entropy_loss(Y_train.T, train_preds)
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
         losses.append(train_loss)  # Store loss for visualization
 
         # Compute validation accuracy
         val_acc = compute_accuracy(X_valid, Y_valid, params, activation, num_layers, input_dim)
 
         # Compute validation loss using cross-entropy
-        _, _, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
-        val_loss = cross_entropy_loss(Y_valid.T, val_preds)
+        act, out, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
+        val_loss = cross_entropy_loss(Y_valid.T, val_preds, params, weight_decay, num_layers)
 
 
         # Print epoch summary
         print(f"Epoch {epoch+1}, Train_Loss: {train_loss:.4f}, Train_Accuracy: {train_acc * 100:.2f}%, Val_Loss: {val_loss:.4f}, Val_Accuracy: {val_acc * 100:.2f}%")
 
         # Log results using Weights & Biases
-        wandb.log({'train_loss': train_loss,
-                   'train_accuracy': train_acc * 100,
-                   'val_loss': val_loss,
-                   'val_accuracy': val_acc * 100,
-                   'epoch': epoch})
+        wandb.log({'Train_loss': train_loss,
+                   'Train_accuracy': train_acc * 100,
+                   'Val_loss': val_loss,
+                   'Val_accuracy': val_acc * 100,
+                   'Epoch': epoch})
 
     # Plot the loss function over epochs
     plt.plot(losses)
@@ -826,7 +690,7 @@ def rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid,
 
 """ADAM"""
 
-def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1=0.9, beta2=0.99):
+def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay):
     """
     Implements the Adam (Adaptive Moment Estimation) optimizer for training a neural network.
         m_t = β1*m_(t-1) + (1-β1)*∇w_t
@@ -840,7 +704,7 @@ def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, ac
         params (dict): Dictionary containing neural network weights and biases.
         X_train (numpy array): Training input data.
         Y_train (numpy array): One-hot encoded training labels.
-        X_valid (numpy array): Validation input data.
+        X_valid (numpy array): validation input data.
         Y_valid (numpy array): One-hot encoded validation labels.
         activation (str): Activation function used in hidden layers.
         epochs (int): Number of training epochs.
@@ -848,8 +712,9 @@ def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, ac
         input_dim (int): Number of input features.
         batch_size (int): Number of samples per batch update.
         epsilon (float): Small constant to avoid division by zero.
-        beta1 (float, optional): Exponential decay rate for first moment estimates (default: 0.9).
-        beta2 (float, optional): Exponential decay rate for second moment estimates (default: 0.99).
+        beta1 (float): exponential decay rate for first moment estimates.
+        beta2 (float): exponential decay rate for second moment estimates.
+        weight_decay (float): L2 regularization strength.
 
     Returns:
         dict: Updated network parameters after training.
@@ -860,13 +725,13 @@ def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, ac
 
     # Initialize first moment vector (momentum)
     momentum = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_momentum = {key: np.zeros_like(value) for key, value in params.items()}
-    momentum_corrected = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_m = {key: np.zeros_like(value) for key, value in params.items()}
+    m_hat = {key: np.zeros_like(value) for key, value in params.items()}
 
     # Initialize second moment vector (velocity - moving average of squared gradients)
     velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    velocity_corrected = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+    v_hat = {key: np.zeros_like(value) for key, value in params.items()}
 
     for epoch in range(epochs):  # Iterate over epochs
         time_step = 0  # Time step counter for bias correction
@@ -883,12 +748,12 @@ def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, ac
             label_sample = Y_train[sample_idx, :].reshape(-1, 1)
 
             # Compute gradients using backward propagation
-            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
 
             # Accumulate gradients for weight and bias updates
             for layer in range(num_layers + 1, 0, -1):
-                gradient_accumulator['W' + str(layer)] += gradients['W' + str(layer)]
-                gradient_accumulator['b' + str(layer)] += gradients['b' + str(layer)]
+                gradient_accumulator[f'W{layer}'] += gradients[f'W{layer}']
+                gradient_accumulator[f'b{layer}'] += gradients[f'b{layer}']
 
             num_processed += 1  # Increment processed sample counter
 
@@ -899,58 +764,58 @@ def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, ac
 
                 # Compute biased first moment estimate (momentum)
                 for layer in range(1, num_layers + 2):
-                    momentum['W' + str(layer)] = beta1 * prev_momentum['W' + str(layer)] + (1 - beta1) * gradient_accumulator['W' + str(layer)]
-                    momentum['b' + str(layer)] = beta1 * prev_momentum['b' + str(layer)] + (1 - beta1) * gradient_accumulator['b' + str(layer)]
+                    momentum[f'W{layer}'] = beta1*prev_m[f'W{layer}'] + (1-beta1)*gradient_accumulator[f'W{layer}']
+                    momentum[f'b{layer}'] = beta1*prev_m[f'b{layer}'] + (1-beta1)*gradient_accumulator[f'b{layer}']
 
                 # Compute bias-corrected first moment estimate
-                    momentum_corrected['W' + str(layer)] = momentum['W' + str(layer)] / (1 - np.power(beta1, time_step))
-                    momentum_corrected['b' + str(layer)] = momentum['b' + str(layer)] / (1 - np.power(beta1, time_step))
+                    m_hat[f'W{layer}'] = momentum[f'W{layer}'] / (1 - np.power(beta1, time_step))
+                    m_hat[f'b{layer}'] = momentum[f'b{layer}'] / (1 - np.power(beta1, time_step))
 
                     # Update previous momentum values
-                    prev_momentum['W' + str(layer)] = momentum['W' + str(layer)]
-                    prev_momentum['b' + str(layer)] = momentum['b' + str(layer)]
+                    prev_m[f'W{layer}'] = momentum[f'W{layer}']
+                    prev_m[f'b{layer}'] = momentum[f'b{layer}']
 
                 # Compute biased second moment estimate (velocity)
-                    velocity['W' + str(layer)] = beta2 * prev_velocity['W' + str(layer)] + (1 - beta2) * (gradient_accumulator['W' + str(layer)] ** 2)
-                    velocity['b' + str(layer)] = beta2 * prev_velocity['b' + str(layer)] + (1 - beta2) * (gradient_accumulator['b' + str(layer)] ** 2)
+                    velocity[f'W{layer}'] = beta2*prev_v[f'W{layer}'] + (1-beta2)*(gradient_accumulator[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta2*prev_v[f'b{layer}'] + (1-beta2)*(gradient_accumulator[f'b{layer}']**2)
 
                 # Compute bias-corrected second moment estimate
-                    velocity_corrected['W' + str(layer)] = velocity['W' + str(layer)] / (1 - np.power(beta2, time_step))
-                    velocity_corrected['b' + str(layer)] = velocity['b' + str(layer)] / (1 - np.power(beta2, time_step))
+                    v_hat[f'W{layer}'] = velocity[f'W{layer}']/(1 - np.power(beta2, time_step))
+                    v_hat[f'b{layer}'] = velocity[f'b{layer}']/(1 - np.power(beta2, time_step))
 
                     # Update previous velocity values
-                    prev_velocity['W' + str(layer)] = velocity['W' + str(layer)]
-                    prev_velocity['b' + str(layer)] = velocity['b' + str(layer)]
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
 
                 # Apply Adam update rule to parameters
-                    params['W' + str(layer)] -= (learning_rate / (np.sqrt(velocity_corrected['W' + str(layer)] + epsilon))) * momentum_corrected['W' + str(layer)]
-                    params['b' + str(layer)] -= (learning_rate / (np.sqrt(velocity_corrected['b' + str(layer)] + epsilon))) * momentum_corrected['b' + str(layer)]
+                    params[f'W{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'W{layer}']) + epsilon)) *m_hat[f'W{layer}']
+                    params[f'b{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'b{layer}']) + epsilon)) *m_hat[f'b{layer}']
 
         # Compute training accuracy after epoch completion
         train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
 
         # Compute training loss using cross-entropy
-        _, _, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
-        train_loss = cross_entropy_loss(Y_train.T, train_preds)
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
         losses.append(train_loss)  # Store loss for visualization
 
         # Compute validation accuracy
         val_acc = compute_accuracy(X_valid, Y_valid, params, activation, num_layers, input_dim)
 
         # Compute validation loss using cross-entropy
-        _, _, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
-        val_loss = cross_entropy_loss(Y_valid.T, val_preds)
+        act, out, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
+        val_loss = cross_entropy_loss(Y_valid.T, val_preds, params, weight_decay, num_layers)
 
 
         # Print epoch summary
         print(f"Epoch {epoch+1}, Train_Loss: {train_loss:.4f}, Train_Accuracy: {train_acc * 100:.2f}%, Val_Loss: {val_loss:.4f}, Val_Accuracy: {val_acc * 100:.2f}%")
 
         # Log results using Weights & Biases
-        wandb.log({'train_loss': train_loss,
-                   'train_accuracy': train_acc * 100,
-                   'val_loss': val_loss,
-                   'val_accuracy': val_acc * 100,
-                   'epoch': epoch})
+        wandb.log({'Train_loss': train_loss,
+                   'Train_accuracy': train_acc * 100,
+                   'Val_loss': val_loss,
+                   'Val_accuracy': val_acc * 100,
+                   'Epoch': epoch})
 
     # Plot the loss function over epochs
     plt.plot(losses)
@@ -963,7 +828,7 @@ def adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, ac
 
 """NADAM"""
 
-def nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1=0.9, beta2=0.99):
+def nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay):
     """
     Implements the Nadam (Nesterov-accelerated Adaptive Moment Estimation) optimization algorithm.
 
@@ -980,6 +845,7 @@ def nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, a
         epsilon: Small value to avoid division by zero.
         beta1: Decay rate for the first moment estimate (momentum term).
         beta2: Decay rate for the second moment estimate (velocity term).
+        weight_decay (float): L2 regularization strength.
 
     Returns:
         Updated parameters after training.
@@ -989,30 +855,30 @@ def nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, a
 
     # Initialize velocity and momentum terms for all parameters
     velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_velocity = {key: np.zeros_like(value) for key, value in params.items()}
-    velocity_corrected = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+    v_hat = {key: np.zeros_like(value) for key, value in params.items()}
 
     momentum = {key: np.zeros_like(value) for key, value in params.items()}
-    prev_momentum = {key: np.zeros_like(value) for key, value in params.items()}
-    momentum_corrected = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_m = {key: np.zeros_like(value) for key, value in params.items()}
+    m_hat = {key: np.zeros_like(value) for key, value in params.items()}
 
     for epoch in range(epochs):
         time_step = 0
         num_processed = 0
         num_batches = 0
         epoch_loss = 0
-        gradient_accumulator = {key: np.zeros_like(value) for key, value in params.items()}
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}
 
         for sample_idx in range(num_samples):
             # Forward pass for a single training sample
             input_sample = X_train[sample_idx, :].reshape(-1, 1)
             label_sample = Y_train[sample_idx, :].reshape(-1, 1)
-            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
 
             # Accumulate gradients over the batch
             for layer in range(num_layers + 1, 0, -1):
-                gradient_accumulator['W' + str(layer)] += gradients['W' + str(layer)]
-                gradient_accumulator['b' + str(layer)] += gradients['b' + str(layer)]
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
 
             num_processed += 1
             if num_processed % batch_size == 0:
@@ -1021,54 +887,54 @@ def nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, a
 
                 # Compute momentum estimates
                 for layer in range(1, num_layers + 2):
-                    momentum['W' + str(layer)] = beta1 * prev_momentum['W' + str(layer)] + (1 - beta1) * gradient_accumulator['W' + str(layer)]
-                    momentum['b' + str(layer)] = beta1 * prev_momentum['b' + str(layer)] + (1 - beta1) * gradient_accumulator['b' + str(layer)]
+                    momentum[f'W{layer}'] = beta1 *prev_m[f'W{layer}'] + (1-beta1)*grad_accu[f'W{layer}']
+                    momentum[f'b{layer}'] = beta1 *prev_m[f'b{layer}'] + (1-beta1)*grad_accu[f'b{layer}']
 
                 # Bias-corrected momentum
-                    momentum_corrected['W' + str(layer)] = momentum['W' + str(layer)] / (1 - np.power(beta1, time_step))
-                    momentum_corrected['b' + str(layer)] = momentum['b' + str(layer)] / (1 - np.power(beta1, time_step))
-                    prev_momentum['W' + str(layer)] = momentum['W' + str(layer)]
-                    prev_momentum['b' + str(layer)] = momentum['b' + str(layer)]
+                    m_hat[f'W{layer}'] = momentum[f'W{layer}']/(1-np.power(beta1, time_step))
+                    m_hat[f'b{layer}'] = momentum[f'b{layer}']/(1-np.power(beta1, time_step))
+                    prev_m[f'W{layer}'] = momentum[f'W{layer}']
+                    prev_m[f'b{layer}'] = momentum[f'b{layer}']
 
                 # Compute velocity estimates
-                    velocity['W' + str(layer)] = beta2 * prev_velocity['W' + str(layer)] + (1 - beta2) * (gradient_accumulator['W' + str(layer)] ** 2)
-                    velocity['b' + str(layer)] = beta2 * prev_velocity['b' + str(layer)] + (1 - beta2) * (gradient_accumulator['b' + str(layer)] ** 2)
+                    velocity[f'W{layer}'] = beta2 * prev_v[f'W{layer}'] + (1-beta2) * (grad_accu[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta2 * prev_v[f'b{layer}'] + (1-beta2) * (grad_accu[f'b{layer}']**2)
 
                 # Bias-corrected velocity
-                    velocity_corrected['W' + str(layer)] = velocity['W' + str(layer)] / (1 - np.power(beta2, time_step))
-                    velocity_corrected['b' + str(layer)] = velocity['b' + str(layer)] / (1 - np.power(beta2, time_step))
-                    prev_velocity['W' + str(layer)] = velocity['W' + str(layer)]
-                    prev_velocity['b' + str(layer)] = velocity['b' + str(layer)]
+                    v_hat[f'W{layer}'] = velocity[f'W{layer}'] /(1-np.power(beta2, time_step))
+                    v_hat[f'b{layer}'] = velocity[f'b{layer}'] /(1-np.power(beta2, time_step))
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
 
                 # Update parameters using Nadam update rule
-                    params['W'+str(layer)] -= (learning_rate/(np.sqrt(velocity_corrected['W'+str(layer)]) + epsilon)) * (beta1 * momentum_corrected['W'+str(layer)] + (1 - beta1) * gradient_accumulator['W'+str(layer)]/(1 - np.power(beta1, time_step)))
-                    params['b'+str(layer)] -= (learning_rate/(np.sqrt(velocity_corrected['b'+str(layer)]) + epsilon)) * (beta1 * momentum_corrected['b'+str(layer)] + (1 - beta1) * gradient_accumulator['b'+str(layer)]/(1 - np.power(beta1, time_step)))
+                    params[f'W{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'W{layer}'])+epsilon)) * (beta1*m_hat[f'W{layer}'] + (1-beta1)*grad_accu[f'W{layer}']/(1-np.power(beta1, time_step)))
+                    params[f'b{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'b{layer}'])+epsilon)) * (beta1*m_hat[f'b{layer}'] + (1-beta1)*grad_accu[f'b{layer}']/(1-np.power(beta1, time_step)))
 
         # Compute training accuracy after epoch completion
         train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
 
         # Compute training loss using cross-entropy
-        _, _, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
-        train_loss = cross_entropy_loss(Y_train.T, train_preds)
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
         losses.append(train_loss)  # Store loss for visualization
 
         # Compute validation accuracy
         val_acc = compute_accuracy(X_valid, Y_valid, params, activation, num_layers, input_dim)
 
         # Compute validation loss using cross-entropy
-        _, _, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
-        val_loss = cross_entropy_loss(Y_valid.T, val_preds)
+        act, out, val_preds = forward_propagation(X_valid.T, params, activation, num_layers, input_dim)
+        val_loss = cross_entropy_loss(Y_valid.T, val_preds, params, weight_decay, num_layers)
 
 
         # Print epoch summary
         print(f"Epoch {epoch+1}, Train_Loss: {train_loss:.4f}, Train_Accuracy: {train_acc * 100:.2f}%, Val_Loss: {val_loss:.4f}, Val_Accuracy: {val_acc * 100:.2f}%")
 
         # Log results using Weights & Biases
-        wandb.log({'train_loss': train_loss,
-                   'train_accuracy': train_acc * 100,
-                   'val_loss': val_loss,
-                   'val_accuracy': val_acc * 100,
-                   'epoch': epoch})
+        wandb.log({'Train_loss': train_loss,
+                   'Train_accuracy': train_acc * 100,
+                   'Val_loss': val_loss,
+                   'Val_accuracy': val_acc * 100,
+                   'Epoch': epoch})
 
     # Plot the loss function over epochs
     plt.plot(losses)
@@ -1094,14 +960,10 @@ X_valid = X_valid.reshape(X_valid.shape[0], -1) / 255
 X_test = X_test.reshape(X_test.shape[0], -1) / 255
 
 def one_hot_encod(arr):
-    """
-    Convert class labels to one-hot encoded vectors.
+    """ Convert class labels to one-hot encoded vectors.
+    Args: arr (numpy array): Array of class labels (e.g, [0, 1, 2, ..., 9])
 
-    Args:
-        arr (numpy array): Array of class labels (e.g., [0, 1, 2, ..., 9])
-
-    Returns:
-        numpy array: One-hot encoded matrix of shape (len(arr), 10)
+    Returns: numpy array: One-hot encoded matrix of shape (len(arr), 10)
     """
     mat = np.zeros((len(arr), 10))  # Create a matrix of zeros with shape (num_samples, num_classes)
     for i in range(len(arr)):
@@ -1113,24 +975,24 @@ Y_train = one_hot_encod(y_train)
 Y_valid = one_hot_encod(y_valid)
 Y_test = one_hot_encod(y_test)
 
-def train_model(learning_rate, X_train, Y_train, X_valid, Y_valid, optimizer, regularization, epochs, activation, num_layers, num_neurons,
-                weight_init, input_dim, output_dim, batch_size, epsilon, beta=0.9, beta1=0.9, beta2=0.99):
+def train_model(X_train,Y_train, X_valid, Y_valid, input_dim,output_dim, learning_rate=0.1, optimizer='sgd', regularization=0.0, epochs=1, activation='sigmoid',
+                num_layers=1, num_neurons=4, weight_init='random', batch_size=4, epsilon=0.000001, beta=0.5, beta1=0.5, beta2=0.5):
     """
     Train a neural network model using the specified optimizer.
 
     Parameters:
-    - learning_rate: The learning rate for optimization.
     - X_train, Y_train: Training data and labels.
     - X_valid, Y_valid: Validation data and labels.
+    - input_dim: Input feature dimension.
+    - output_dim: Output dimension (number of classes for classification).
+    - learning_rate: The learning rate for optimization.
     - optimizer: The optimization algorithm to use ('sgd', 'momentum', 'nesterov', 'rmsprop', 'adam', 'nadam').
-    - regularization: Regularization term (not currently used in this function).
+    - regularization (weight_decay): L2 Regularization term.
     - epochs: Number of training epochs.
     - activation: Activation function to use.
     - num_layers: Number of hidden layers in the network.
     - num_neurons: Number of neurons in each hidden layer.
     - weight_init: Weight initialization method.
-    - input_dim: Input feature dimension.
-    - output_dim: Output dimension (number of classes for classification).
     - batch_size: Number of samples per training batch.
     - epsilon: Small constant to prevent division by zero.
     - beta, beta1, beta2: Hyperparameters for momentum-based optimizers.
@@ -1145,22 +1007,22 @@ def train_model(learning_rate, X_train, Y_train, X_valid, Y_valid, optimizer, re
     # Select the appropriate optimizer and train the model
     if optimizer == 'sgd':
         # Stochastic Gradient Descent
-        params = stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, activation, num_layers, num_neurons, weight_init, batch_size, input_dim, output_dim)
+        params = stochastic_gd(learning_rate, X_train, Y_train, X_valid, Y_valid, epochs, activation, num_layers, num_neurons, weight_init, batch_size, input_dim, output_dim,regularization)
     elif optimizer == 'momentum':
-        # SGD with Momentum
-        params = momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta=0.9)
+        # Momentum based Gradient Descent
+        params = momentum_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta,regularization)
     elif optimizer == 'nesterov':
-        # Nesterov Accelerated Gradient (NAG)
-        params = nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta=0.9)
+        # Nesterov Accelerated Gradient Descent (NAG)
+        params = nag_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, beta,regularization)
     elif optimizer == 'rmsprop':
         # RMSprop optimizer
-        params = rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon=0.01, beta=0.9)
+        params = rmsprop_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,regularization)
     elif optimizer == 'adam':
         # Adam optimizer (Adaptive Moment Estimation)
-        params = adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1=0.9, beta2=0.99)
+        params = adam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,regularization)
     elif optimizer == 'nadam':
         # Nadam optimizer (Adam with Nesterov momentum)
-        params = nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1=0.9, beta2=0.99)
+        params = nadam_optimizer(learning_rate, params, X_train, Y_train, X_valid, Y_valid, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,regularization)
 
     return params
 
@@ -1169,7 +1031,7 @@ sweep_config = {
     'method': 'bayes',  # Use Bayesian optimization for efficient hyperparameter tuning
     'name': 'sweep cross entropy now',  # Name of the sweep for tracking
     'metric': {'name': 'Val_accuracy',  # The metric to optimize
-               'goal': 'maximize'},  # The objective is to maximize validation accuracy
+               'goal': 'maximize'},  # The objective is to maximize Training accuracy
     'parameters': {
         'epochs': {'values': [5, 10]},  # Number of training epochs
         'num_layers': {'values': [3, 4, 5]},  # Number of hidden layers
@@ -1200,7 +1062,7 @@ def main():
                    "_nn-" + str(wandb.config.num_neurons) + \
                    "_epc-" + str(wandb.config.epochs) + \
                    "_nl-" + str(wandb.config.num_layers) + \
-                   "_reg-" + str(wandb.config.regularization) + \
+                   "_wd-" + str(wandb.config.regularization) + \
                    "_lr-" + str(wandb.config.learning_rate) + \
                    "_opt-" + str(wandb.config.optimizer) + \
                    "_bs-" + str(wandb.config.batch_size) + \
@@ -1211,9 +1073,10 @@ def main():
 
         # Train the model with the current hyperparameter configuration
         train_model(
-            wandb.config.learning_rate,  # Learning rate
             X_train, Y_train,            # Training data
             X_valid, Y_valid,            # Validation data
+            784, 10,                     # Input and output dimensions (Fashion MNIST: 784 input features, 10 classes)
+            wandb.config.learning_rate,  # Learning rate
             wandb.config.optimizer,      # Optimizer
             wandb.config.regularization, # Regularization term
             wandb.config.epochs,         # Number of epochs
@@ -1221,14 +1084,13 @@ def main():
             wandb.config.num_layers,     # Number of hidden layers
             wandb.config.num_neurons,    # Neurons per layer
             wandb.config.weight_init,    # Weight initialization method
-            784, 10,                     # Input and output dimensions (Fashion MNIST: 784 input features, 10 classes)
             wandb.config.batch_size,     # Batch size
-            epsilon=0.001,                # Small constant for numerical stability
+            epsilon=0.0001,                # Small constant for numerical stability
             beta=0.9, beta1=0.9, beta2=0.99  # Hyperparameters for momentum-based optimizers
         )
 
 # Run the sweep agent to execute `main` function multiple times
-wandb.agent(sweep_id, function=main, count=6)  # Calls `main` function 6 times with different hyperparameter sets
+wandb.agent(sweep_id, function=main, count=100)  # Calls `main` function 100 times with different hyperparameter sets
 
 # Mark the end of the WandB run
 wandb.finish()
@@ -1241,14 +1103,14 @@ sweep_config = {
                'goal': 'maximize'},  # The objective is to maximize validation accuracy
     'parameters': {
         'epochs': {'values': [10]},  # Number of training epochs
-        'num_layers': {'values': [5]},  # Number of hidden layers
-        'num_neurons': {'values': [128]},  # Neurons per layer
-        'regularization': {'values': [0]},  # L2 regularization strength
-        'learning_rate': {'values': [1e-4]},  # Learning rate values
+        'num_layers': {'values': [4,5]},  # Number of hidden layers
+        'num_neurons': {'values': [64,128]},  # Neurons per layer
+        'regularization': {'values': [0,0.0005]},  # L2 regularization strength
+        'learning_rate': {'values': [1e-3,1e-4]},  # Learning rate values
         'optimizer': {'values': ['rmsprop', 'adam', 'nadam']},  # Optimizers to test
-        'batch_size': {'values': [64]},  # Batch sizes for training
+        'batch_size': {'values': [32,64]},  # Batch sizes for training
         'weight_init': {'values': ['xavier']},  # Weight initialization methods
-        'activation': {'values': ['sigmoid', 'relu', 'tanh']}  # Activation functions to test
+        'activation': {'values': ['sigmoid', 'relu']}  # Activation functions to test
     }
 }
 
@@ -1269,7 +1131,7 @@ def main():
                    "_nn-" + str(wandb.config.num_neurons) + \
                    "_epc-" + str(wandb.config.epochs) + \
                    "_nl-" + str(wandb.config.num_layers) + \
-                   "_reg-" + str(wandb.config.regularization) + \
+                   "_wd-" + str(wandb.config.regularization) + \
                    "_lr-" + str(wandb.config.learning_rate) + \
                    "_opt-" + str(wandb.config.optimizer) + \
                    "_bs-" + str(wandb.config.batch_size) + \
@@ -1280,25 +1142,938 @@ def main():
 
         # Train the model with the current hyperparameter configuration
         train_model(
-            wandb.config.learning_rate,  # Learning rate
             X_train, Y_train,            # Training data
             X_valid, Y_valid,            # Validation data
+            784, 10,                     # Input and output dimensions (Fashion MNIST: 784 input features, 10 classes)
+            wandb.config.learning_rate,  # Learning rate
             wandb.config.optimizer,      # Optimizer
-            wandb.config.regularization, # Regularization term
+            wandb.config.regularization,   # Regularization term
             wandb.config.epochs,         # Number of epochs
             wandb.config.activation,     # Activation function
             wandb.config.num_layers,     # Number of hidden layers
             wandb.config.num_neurons,    # Neurons per layer
             wandb.config.weight_init,    # Weight initialization method
-            784, 10,                     # Input and output dimensions (Fashion MNIST: 784 input features, 10 classes)
             wandb.config.batch_size,     # Batch size
-            epsilon=0.001,                # Small constant for numerical stability
+            epsilon=0.0001,                # Small constant for numerical stability
             beta=0.9, beta1=0.9, beta2=0.99  # Hyperparameters for momentum-based optimizers
         )
 
 # Run the sweep agent to execute `main` function multiple times
-wandb.agent(sweep_id, function=main, count=9)  # Calls `main` function 9 times with different hyperparameter sets
+wandb.agent(sweep_id, function=main, count=50)  # Calls `main` function 50 times with different hyperparameter sets
 
 # Mark the end of the WandB run
 wandb.finish()
+
+"""## Question-7 : Test Accuracy and Confusion Matrix
+
+I am getting higher accuracy with RMSPROP, ADAM and NADAM. So I am using these optimizers to find test accuracy.
+"""
+
+def nadam_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay):
+    """
+    Implements the Nadam (Nesterov-accelerated Adaptive Moment Estimation) optimization algorithm.
+
+    Args:
+        learning_rate: The step size for parameter updates.
+        params: Dictionary containing the neural network parameters.
+        X_train, Y_train: Training data and corresponding labels.
+        X_test, Y_test: Testing data and corresponding labels.
+        activation: Activation function used in the network.
+        epochs: Number of training iterations.
+        num_layers: Number of hidden layers.
+        input_dim: Input dimension of the data.
+        batch_size: Number of samples per batch update.
+        epsilon: Small value to avoid division by zero.
+        beta1: Decay rate for the first moment estimate (momentum term).
+        beta2: Decay rate for the second moment estimate (velocity term).
+        weight_decay (float): L2 regularization strength.
+
+    Returns:
+        Updated parameters after training.
+    """
+    train_losses = []
+    test_losses = []
+    num_samples = X_train.shape[0]
+
+    # Initialize velocity and momentum terms for all parameters
+    velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+    v_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    momentum = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_m = {key: np.zeros_like(value) for key, value in params.items()}
+    m_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    for epoch in range(epochs):
+        time_step = 0
+        num_processed = 0
+        num_batches = 0
+        epoch_loss = 0
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}
+
+        for sample_idx in range(num_samples):
+            # Forward pass for a single training sample
+            input_sample = X_train[sample_idx, :].reshape(-1, 1)
+            label_sample = Y_train[sample_idx, :].reshape(-1, 1)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
+
+            # Accumulate gradients over the batch
+            for layer in range(num_layers + 1, 0, -1):
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
+
+            num_processed += 1
+            if num_processed % batch_size == 0:
+                time_step += 1
+                num_batches += 1
+
+                # Compute momentum estimates
+                for layer in range(1, num_layers + 2):
+                    momentum[f'W{layer}'] = beta1 *prev_m[f'W{layer}'] + (1-beta1)*grad_accu[f'W{layer}']
+                    momentum[f'b{layer}'] = beta1 *prev_m[f'b{layer}'] + (1-beta1)*grad_accu[f'b{layer}']
+
+                # Bias-corrected momentum
+                    m_hat[f'W{layer}'] = momentum[f'W{layer}'] / (1-np.power(beta1, time_step))
+                    m_hat[f'b{layer}'] = momentum[f'b{layer}'] / (1-np.power(beta1, time_step))
+                    prev_m[f'W{layer}'] = momentum[f'W{layer}']
+                    prev_m[f'b{layer}'] = momentum[f'b{layer}']
+
+                # Compute velocity estimates
+                    velocity[f'W{layer}'] = beta2 * prev_v[f'W{layer}'] + (1-beta2) * (grad_accu[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta2 * prev_v[f'b{layer}'] + (1-beta2) * (grad_accu[f'b{layer}']**2)
+
+                # Bias-corrected velocity
+                    v_hat[f'W{layer}'] = velocity[f'W{layer}'] / (1-np.power(beta2, time_step))
+                    v_hat[f'b{layer}'] = velocity[f'b{layer}'] / (1-np.power(beta2, time_step))
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
+
+                # Update parameters using Nadam update rule
+                    params[f'W{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'W{layer}'])+epsilon)) * (beta1*m_hat[f'W{layer}'] + (1-beta1)*grad_accu[f'W{layer}']/(1-np.power(beta1, time_step)))
+                    params[f'b{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'b{layer}'])+epsilon)) * (beta1*m_hat[f'b{layer}'] + (1-beta1)*grad_accu[f'b{layer}']/(1-np.power(beta1, time_step)))
+
+        # Compute training accuracy after epoch completion
+        train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
+
+        # Compute training loss using cross-entropy
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
+        train_losses.append(train_loss)  # Store loss for visualization
+
+        # Compute test accuracy
+        test_acc = compute_accuracy(X_test, Y_test, params, activation, num_layers, input_dim)
+
+        # Compute test loss using cross-entropy
+        act, out, test_preds = forward_propagation(X_test.T, params, activation, num_layers, input_dim)
+        test_loss = cross_entropy_loss(Y_test.T, test_preds, params, weight_decay, num_layers)
+        test_losses.append(test_loss)  # Store loss for visualization
+
+
+        # Print epoch summary
+        print(f"Epoch {epoch+1}, Train_loss: {train_loss:.4f}, Train_accuracy: {train_acc * 100:.2f}%, Test_loss: {test_loss:.4f}, Test_accuracy: {test_acc * 100:.2f}%")
+
+
+    # Plot the loss function over epochs
+    plt.plot(train_losses, label="Training Loss")
+    plt.plot(test_losses, label="Test Loss")
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Losses over Epochs')
+    plt.show()
+
+    return params
+
+def adam_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay):
+    """
+    Implements the Adam (Adaptive Moment Estimation) optimizer for training a neural network.
+        m_t = β1*m_(t-1) + (1-β1)*∇w_t
+        hat{m_t} = m_t / (1-β1^t)
+        v_t = β2*v_(t-1) + (1-β2)*(∇w_t)^2
+        hat{v_t} = v_t / (1-β2^t)
+        w_(t+1) = w_t - η*(hat{m_t} / (√(hat{v_t}) +ε) )
+
+    Args:
+        learning_rate (float): Learning rate for parameter updates.
+        params (dict): Dictionary containing neural network weights and biases.
+        X_train (numpy array): Training input data.
+        Y_train (numpy array): One-hot encoded training labels.
+        X_test (numpy array): Test input data.
+        Y_test (numpy array): One-hot encoded test labels.
+        activation (str): Activation function used in hidden layers.
+        epochs (int): Number of training epochs.
+        num_layers (int): Number of hidden layers.
+        input_dim (int): Number of input features.
+        batch_size (int): Number of samples per batch update.
+        epsilon (float): Small constant to avoid division by zero.
+        beta1 (float): Exponential decay rate for first moment estimates.
+        beta2 (float): Exponential decay rate for second moment estimates.
+        weight_decay (float): L2 regularization strength.
+
+    Returns:
+        dict: Updated network parameters after training.
+    """
+
+    train_losses = []  # List to store loss values for each epoch
+    test_losses = []
+    num_samples = X_train.shape[0]  # Number of training samples
+
+    # Initialize first moment vector (momentum)
+    momentum = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_m = {key: np.zeros_like(value) for key, value in params.items()}
+    m_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    # Initialize second moment vector (velocity - moving average of squared gradients)
+    velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+    v_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    for epoch in range(epochs):  # Iterate over epochs
+        time_step = 0  # Time step counter for bias correction
+        num_processed = 0  # Counter for processed samples
+        num_batches = 0  # Counter for number of batches
+        epoch_loss = 0  # Initialize epoch loss
+
+        # Initialize gradient accumulator for batch updates
+        gradient_accumulator = {key: np.zeros_like(value) for key, value in params.items()}
+
+        for sample_idx in range(num_samples):  # Iterate through all training samples
+            # Select a single training sample and reshape it into a column vector
+            input_sample = X_train[sample_idx, :].reshape(-1, 1)
+            label_sample = Y_train[sample_idx, :].reshape(-1, 1)
+
+            # Compute gradients using backward propagation
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
+
+            # Accumulate gradients for weight and bias updates
+            for layer in range(num_layers + 1, 0, -1):
+                gradient_accumulator[f'W{layer}'] += gradients[f'W{layer}']
+                gradient_accumulator[f'b{layer}'] += gradients[f'b{layer}']
+
+            num_processed += 1  # Increment processed sample counter
+
+            # Update weights and biases after processing a full batch
+            if num_processed % batch_size == 0:
+                time_step += 1  # Increment time step for bias correction
+                num_batches += 1  # Increment batch count
+
+                # Compute biased first moment estimate (momentum)
+                for layer in range(1, num_layers + 2):
+                    momentum[f'W{layer}'] = beta1*prev_m[f'W{layer}'] + (1-beta1)*gradient_accumulator[f'W{layer}']
+                    momentum[f'b{layer}'] = beta1*prev_m[f'b{layer}'] + (1-beta1)*gradient_accumulator[f'b{layer}']
+
+                # Compute bias-corrected first moment estimate
+                    m_hat[f'W{layer}'] = momentum[f'W{layer}'] / (1 - np.power(beta1, time_step))
+                    m_hat[f'b{layer}'] = momentum[f'b{layer}'] / (1 - np.power(beta1, time_step))
+
+                    # Update previous momentum values
+                    prev_m[f'W{layer}'] = momentum[f'W{layer}']
+                    prev_m[f'b{layer}'] = momentum[f'b{layer}']
+
+                # Compute biased second moment estimate (velocity)
+                    velocity[f'W{layer}'] = beta2*prev_v[f'W{layer}'] + (1-beta2)*(gradient_accumulator[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta2*prev_v[f'b{layer}'] + (1-beta2)*(gradient_accumulator[f'b{layer}']**2)
+
+                # Compute bias-corrected second moment estimate
+                    v_hat[f'W{layer}'] = velocity[f'W{layer}'] / (1 - np.power(beta2, time_step))
+                    v_hat[f'b{layer}'] = velocity[f'b{layer}'] / (1 - np.power(beta2, time_step))
+
+                    # Update previous velocity values
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
+
+                # Apply Adam update rule to parameters
+                    params[f'W{layer}'] -= (learning_rate / (np.sqrt(v_hat[f'W{layer}']) + epsilon)) *m_hat[f'W{layer}']
+                    params[f'b{layer}'] -= (learning_rate / (np.sqrt(v_hat[f'b{layer}']) + epsilon)) *m_hat[f'b{layer}']
+
+        # Compute training accuracy after epoch completion
+        train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
+
+        # Compute training loss using cross-entropy
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
+        train_losses.append(train_loss)  # Store loss for visualization
+
+        # Compute test accuracy
+        test_acc = compute_accuracy(X_test, Y_test, params, activation, num_layers, input_dim)
+
+        # Compute test loss using cross-entropy
+        act, out, test_preds = forward_propagation(X_test.T, params, activation, num_layers, input_dim)
+        test_loss = cross_entropy_loss(Y_test.T, test_preds, params, weight_decay, num_layers)
+        test_losses.append(test_loss)  # Store loss for visualization
+
+
+        # Print epoch summary
+        print(f"Epoch {epoch+1}, Train_loss: {train_loss:.4f}, Train_accuracy: {train_acc * 100:.2f}%, Test_loss: {test_loss:.4f}, Test_accuracy: {test_acc * 100:.2f}%")
+
+    # Plot the loss function over epochs
+    plt.plot(train_losses, label="Training Loss")
+    plt.plot(test_losses, label="Test Loss")
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Losses over Epochs')
+    plt.show()
+
+    return params
+
+def rmsprop_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,weight_decay):
+    """
+    Implements the RMSprop (Root Mean Square Propagation) optimizer for training a neural network.
+        v_t = β * v_(t-1) + (1-β) * (∇w_t)^2
+        w_(t+1) = w_t - η*(∇w_t / (√v_t + ε))
+
+    Args:
+        learning_rate (float): Learning rate for parameter updates.
+        params (dict): Dictionary containing neural network weights and biases.
+        X_train (numpy array): Training input data.
+        Y_train (numpy array): One-hot encoded training labels.
+        X_test (numpy array): Test input data.
+        Y_test (numpy array): One-hot encoded test labels.
+        activation (str): Activation function used in hidden layers.
+        epochs (int): Number of training epochs.
+        num_layers (int): Number of hidden layers.
+        input_dim (int): Number of input features.
+        batch_size (int): Number of samples per batch update.
+        epsilon (float): Small constant to avoid division by zero.
+        beta (float): Decay rate for the moving average of squared gradients.
+        weight_decay (float): L2 regularization strength.
+
+    Returns:
+        dict: Updated network parameters after training.
+    """
+
+    train_losses = []  # List to store training loss for each epoch
+    test_losses = []
+    num_samples = X_train.shape[0]  # Number of training samples
+
+    # Initialize velocity (moving average of squared gradients) for each parameter
+    velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+
+    for epoch in range(epochs):  # Iterate through epochs
+        num_processed = 0  # Counter for processed samples
+        num_batches = 0  # Counter for number of batches
+        epoch_loss = 0  # Initialize loss for the current epoch
+
+        # Initialize gradient accumulator for batch updates
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}
+
+        for sample_idx in range(num_samples):  # Iterate through all training samples
+            num_processed += 1  # Increment processed sample counter
+
+            # Select a single training sample and reshape it into a column vector
+            input_sample = X_train[sample_idx, :].reshape(-1, 1)
+            label_sample = Y_train[sample_idx, :].reshape(-1, 1)
+
+            # Compute gradients using backward propagation
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
+
+            # Accumulate gradients for weight and bias updates
+            for layer in range(num_layers + 1, 0, -1):
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
+
+            # Update weights and biases after processing a full batch
+            if num_processed % batch_size == 0:
+                num_batches += 1  # Increment batch count
+
+                for layer in range(1, num_layers + 2):
+                    # Compute moving average of squared gradients (RMSprop update)
+                    velocity[f'W{layer}'] = beta*prev_v[f'W{layer}'] + (1-beta)*(grad_accu[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta*prev_v[f'b{layer}'] + (1-beta)*(grad_accu[f'b{layer}']**2)
+
+
+                    # Apply RMSprop update rule to parameters
+                    params[f'W{layer}'] -= (learning_rate / (np.sqrt(velocity[f'W{layer}'] + epsilon))) * grad_accu[f'W{layer}']
+                    params[f'b{layer}'] -= (learning_rate / (np.sqrt(velocity[f'b{layer}'] + epsilon))) * grad_accu[f'b{layer}']
+
+                # Store previous velocity values for the next batch update
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
+
+        # Compute training accuracy after epoch completion
+        train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
+
+        # Compute training loss using cross-entropy
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = cross_entropy_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
+        train_losses.append(train_loss)  # Store loss for visualization
+
+        # Compute test accuracy
+        test_acc = compute_accuracy(X_test, Y_test, params, activation, num_layers, input_dim)
+
+        # Compute test loss using cross-entropy
+        act, out, test_preds = forward_propagation(X_test.T, params, activation, num_layers, input_dim)
+        test_loss = cross_entropy_loss(Y_test.T, test_preds, params, weight_decay, num_layers)
+        test_losses.append(test_loss)  # Store loss for visualization
+
+
+        # Print epoch summary
+        print(f"Epoch {epoch+1}, Train_loss: {train_loss:.4f}, Train_accuracy: {train_acc * 100:.2f}%, Test_loss: {test_loss:.4f}, Test_accuracy: {test_acc * 100:.2f}%")
+
+
+    # Plot the loss function over epochs
+    plt.plot(train_losses, label="Training Loss")
+    plt.plot(test_losses, label="Test Loss")
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Losses over Epochs')
+    plt.show()
+
+    return params
+
+# Best hyperparameters after tuning with wandb
+epochs=10
+batch_size=64
+learning_rate=0.0001
+beta=0.9
+beta1=0.9
+beta2=0.99
+epsilon=0.000001
+num_layers=5
+num_neurons=128
+input_dim=784
+output_dim=10
+weight_decay=0.0
+weight_init='xavier'
+activation='relu'
+
+# Initialize the network with random weights based on the chosen weight initialization method
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+
+# Nadam optimizer (Adam with Nesterov momentum)
+parameters = nadam_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay)
+
+parameters = adam_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay)
+
+parameters = rmsprop_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,weight_decay)
+
+"""I found highest test accuracy with RMSprop, So I am using RMSprop optimizer for creating confusion matrix."""
+
+# Load the Fashion-MNIST dataset
+(X_train, y_train), (X_test, y_test) = fashion_mnist.load_data()
+
+# Split the training data into training and validation sets (90% train, 10% validation)
+X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=0.1, random_state=42)
+
+# Flatten the images (convert 28x28 matrices into 1D arrays of size 784)
+# Normalize pixel values to the range [0,1] by dividing by 255
+X_train = X_train.reshape(X_train.shape[0], -1) / 255
+X_valid = X_valid.reshape(X_valid.shape[0], -1) / 255
+X_test = X_test.reshape(X_test.shape[0], -1) / 255
+
+def one_hot_encod(arr):
+    """ Convert class labels to one-hot encoded vectors.
+    Args: arr (numpy array): Array of class labels (e.g., [0, 1, 2, ..., 9])
+
+    Returns: numpy array: One-hot encoded matrix of shape (len(arr), 10)
+    """
+    mat = np.zeros((len(arr), 10))  # Create a matrix of zeros with shape (num_samples, num_classes)
+    for i in range(len(arr)):
+        mat[i, arr[i]] = 1  # Set the corresponding class index to 1
+    return mat
+
+# Convert labels to one-hot encoding for training, validation, and test sets
+Y_train = one_hot_encod(y_train)
+Y_valid = one_hot_encod(y_valid)
+Y_test = one_hot_encod(y_test)
+
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import wandb
+from sklearn.metrics import confusion_matrix
+
+# Initialize wandb
+wandb.init(project="DA6401_A-1_Confusion_matrix", name="confusion_matrix")
+
+# Function to compute predictions for test set
+def get_predictions(X_test, trained_params, activation, num_layers, input_dim):
+    """
+    Compute class predictions for the test set.
+
+    Args:
+        X_test (numpy array): Test data.
+        trained_params (dict): Trained weights and biases.
+        activation (str): Activation function.
+        num_layers (int): Number of hidden layers.
+        input_dim (int): Number of input features.
+
+    Returns:
+        numpy array: Predicted class labels.
+    """
+    predictions = []
+    for i in range(X_test.shape[0]):
+        input_sample = X_test[i, :].reshape(-1, 1)
+        _, _, pred = forward_propagation(input_sample, trained_params, activation, num_layers, input_dim)
+        predictions.append(np.argmax(pred))  # Convert probabilities to class labels
+    return np.array(predictions)
+
+# Best hyperparameters after tuning with wandb
+epochs=10
+batch_size=64
+learning_rate=0.0001
+beta=0.9
+beta1=0.9
+beta2=0.99
+epsilon=0.000001
+num_layers=5
+num_neurons=128
+input_dim=784
+output_dim=10
+weight_decay=0.0
+weight_init='xavier'
+activation='relu'
+
+# Initialize the network with random weights based on the chosen weight initialization method
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+parameters = rmsprop_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,weight_decay)
+
+# Get true labels and predicted labels
+y_true = np.argmax(Y_test, axis=1)  # Convert one-hot to class labels
+y_pred = get_predictions(X_test, parameters, activation, num_layers, input_dim)
+
+# Compute confusion matrix
+conf_matrix = confusion_matrix(y_true, y_pred)
+
+# Define class names
+classes = ['T-shirt/top', 'Trouser', 'Pullover', 'Dress', 'Coat',
+           'Sandal', 'Shirt', 'Sneaker', 'Bag', 'Ankle boot']
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues", xticklabels=classes, yticklabels=classes)
+plt.xlabel("Predicted Label")
+plt.ylabel("True Label")
+plt.title("Confusion Matrix")
+
+# Save and log to wandb
+plt.savefig("confusion_matrix.png")
+wandb.log({"Confusion Matrix": wandb.Image("confusion_matrix.png")})
+
+# Close wandb run
+wandb.finish()
+
+"""### Question-8 : Best Optimizers with Mean Squared error"""
+
+def mse_loss(y_true, y_pred, params, weight_decay, num_layers):
+    """
+    Compute Mean Squared Error (MSE) loss with L2 regularization.
+
+    Args:
+        y_true (numpy array): One-hot encoded true labels.
+        y_pred (numpy array): Predicted probability distribution.
+        params (dict): Dictionary containing network weights.
+        weight_decay (float): L2 regularization strength.
+        num_layers (int): Number of layers.
+
+    Returns:
+        float: MSE loss with L2 regularization.
+    """
+    mse = np.mean(np.sum((y_true - y_pred) ** 2, axis=0))  # Compute standard MSE loss
+
+    # Compute L2 regularization term
+    l2_reg = (weight_decay / 2) * sum(np.sum(params[f'W{layer}'] ** 2) for layer in range(1, num_layers + 2))
+
+    return mse + l2_reg
+
+
+def rmsprop_opt_mse(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta, weight_decay):
+    """
+    Implements the RMSprop (Root Mean Square Propagation) optimizer for training a neural network using MSE loss.
+    """
+    train_losses = []
+    test_losses = []
+    num_samples = X_train.shape[0]
+
+    # Initialize velocity (moving average of squared gradients)
+    velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+
+    for epoch in range(epochs):
+        num_processed = 0
+        num_batches = 0
+        epoch_loss = 0
+
+        # Initialize gradient accumulator
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}
+
+        for sample_idx in range(num_samples):
+            num_processed += 1
+
+            input_sample = X_train[sample_idx, :].reshape(-1, 1)
+            label_sample = Y_train[sample_idx, :].reshape(-1, 1)
+
+            # Compute gradients
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim, weight_decay)
+
+            # Accumulate gradients
+            for layer in range(num_layers + 1, 0, -1):
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
+
+            # Update weights and biases after a full batch
+            if num_processed % batch_size == 0:
+                num_batches += 1
+
+                for layer in range(1, num_layers + 2):
+                    velocity[f'W{layer}'] = beta * prev_v[f'W{layer}'] + (1 - beta) * (grad_accu[f'W{layer}'] ** 2)
+                    velocity[f'b{layer}'] = beta * prev_v[f'b{layer}'] + (1 - beta) * (grad_accu[f'b{layer}'] ** 2)
+
+                    params[f'W{layer}'] -= (learning_rate / (np.sqrt(velocity[f'W{layer}'] + epsilon))) * grad_accu[f'W{layer}']
+                    params[f'b{layer}'] -= (learning_rate / (np.sqrt(velocity[f'b{layer}'] + epsilon))) * grad_accu[f'b{layer}']
+
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
+
+        # Compute accuracy
+        train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
+        test_acc = compute_accuracy(X_test, Y_test, params, activation, num_layers, input_dim)
+
+        # Compute loss using MSE
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = mse_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
+        train_losses.append(train_loss)
+
+        act, out, test_preds = forward_propagation(X_test.T, params, activation, num_layers, input_dim)
+        test_loss = mse_loss(Y_test.T, test_preds, params, weight_decay, num_layers)
+        test_losses.append(test_loss)
+
+        # Print epoch summary
+        print(f"Epoch {epoch+1}, Train_loss: {train_loss:.4f}, Train_accuracy: {train_acc * 100:.2f}%, Test_loss: {test_loss:.4f}, Test_accuracy: {test_acc * 100:.2f}%")
+
+    # Plot loss curves
+    plt.plot(train_losses, label="Training Loss")
+    plt.plot(test_losses, label="Test Loss")
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Losses over Epochs (MSE)')
+    plt.legend()
+    plt.show()
+
+    return params
+
+def adam_opt_mse(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay):
+    """
+    Implements the Adam (Adaptive Moment Estimation) optimizer for training a neural network using mse.
+    """
+
+    train_losses = []  # List to store loss values for each epoch
+    test_losses = []
+    num_samples = X_train.shape[0]  # Number of training samples
+
+    # Initialize first moment vector (momentum)
+    momentum = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_m = {key: np.zeros_like(value) for key, value in params.items()}
+    m_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    # Initialize second moment vector (velocity - moving average of squared gradients)
+    velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+    v_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    for epoch in range(epochs):  # Iterate over epochs
+        time_step = 0  # Time step counter for bias correction
+        num_processed = 0  # Counter for processed samples
+        num_batches = 0  # Counter for number of batches
+        epoch_loss = 0  # Initialize epoch loss
+
+        # Initialize gradient accumulator for batch updates
+        gradient_accumulator = {key: np.zeros_like(value) for key, value in params.items()}
+
+        for sample_idx in range(num_samples):  # Iterate through all training samples
+            # Select a single training sample and reshape it into a column vector
+            input_sample = X_train[sample_idx, :].reshape(-1, 1)
+            label_sample = Y_train[sample_idx, :].reshape(-1, 1)
+
+            # Compute gradients using backward propagation
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
+
+            # Accumulate gradients for weight and bias updates
+            for layer in range(num_layers + 1, 0, -1):
+                gradient_accumulator[f'W{layer}'] += gradients[f'W{layer}']
+                gradient_accumulator[f'b{layer}'] += gradients[f'b{layer}']
+
+            num_processed += 1  # Increment processed sample counter
+
+            # Update weights and biases after processing a full batch
+            if num_processed % batch_size == 0:
+                time_step += 1  # Increment time step for bias correction
+                num_batches += 1  # Increment batch count
+
+                # Compute biased first moment estimate (momentum)
+                for layer in range(1, num_layers + 2):
+                    momentum[f'W{layer}'] = beta1*prev_m[f'W{layer}'] + (1-beta1)*gradient_accumulator[f'W{layer}']
+                    momentum[f'b{layer}'] = beta1*prev_m[f'b{layer}'] + (1-beta1)*gradient_accumulator[f'b{layer}']
+
+                # Compute bias-corrected first moment estimate
+                    m_hat[f'W{layer}'] = momentum[f'W{layer}'] / (1 - np.power(beta1, time_step))
+                    m_hat[f'b{layer}'] = momentum[f'b{layer}'] / (1 - np.power(beta1, time_step))
+
+                    # Update previous momentum values
+                    prev_m[f'W{layer}'] = momentum[f'W{layer}']
+                    prev_m[f'b{layer}'] = momentum[f'b{layer}']
+
+                # Compute biased second moment estimate (velocity)
+                    velocity[f'W{layer}'] = beta2*prev_v[f'W{layer}'] + (1-beta2)*(gradient_accumulator[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta2*prev_v[f'b{layer}'] + (1-beta2)*(gradient_accumulator[f'b{layer}']**2)
+
+                # Compute bias-corrected second moment estimate
+                    v_hat[f'W{layer}'] = velocity[f'W{layer}'] / (1 - np.power(beta2, time_step))
+                    v_hat[f'b{layer}'] = velocity[f'b{layer}'] / (1 - np.power(beta2, time_step))
+
+                    # Update previous velocity values
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
+
+                # Apply Adam update rule to parameters
+                    params[f'W{layer}'] -= (learning_rate / (np.sqrt(v_hat[f'W{layer}']) + epsilon)) *m_hat[f'W{layer}']
+                    params[f'b{layer}'] -= (learning_rate / (np.sqrt(v_hat[f'b{layer}']) + epsilon)) *m_hat[f'b{layer}']
+
+        # Compute training accuracy after epoch completion
+        train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
+
+        # Compute training loss using cross-entropy
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = mse_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
+        train_losses.append(train_loss)  # Store loss for visualization
+
+        # Compute test accuracy
+        test_acc = compute_accuracy(X_test, Y_test, params, activation, num_layers, input_dim)
+
+        # Compute test loss using cross-entropy
+        act, out, test_preds = forward_propagation(X_test.T, params, activation, num_layers, input_dim)
+        test_loss = mse_loss(Y_test.T, test_preds, params, weight_decay, num_layers)
+        test_losses.append(test_loss)  # Store loss for visualization
+
+
+        # Print epoch summary
+        print(f"Epoch {epoch+1}, Train_loss: {train_loss:.4f}, Train_accuracy: {train_acc * 100:.2f}%, Test_loss: {test_loss:.4f}, Test_accuracy: {test_acc * 100:.2f}%")
+
+    # Plot the loss function over epochs
+    plt.plot(train_losses, label="Training Loss")
+    plt.plot(test_losses, label="Test Loss")
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Losses over Epochs')
+    plt.show()
+
+    return params
+
+def nadam_opt_mse(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay):
+    """
+    Implements the Nadam (Nesterov-accelerated Adaptive Moment Estimation) optimization algorithm using mse.
+    """
+    train_losses = []
+    test_losses = []
+    num_samples = X_train.shape[0]
+
+    # Initialize velocity and momentum terms for all parameters
+    velocity = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_v = {key: np.zeros_like(value) for key, value in params.items()}
+    v_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    momentum = {key: np.zeros_like(value) for key, value in params.items()}
+    prev_m = {key: np.zeros_like(value) for key, value in params.items()}
+    m_hat = {key: np.zeros_like(value) for key, value in params.items()}
+
+    for epoch in range(epochs):
+        time_step = 0
+        num_processed = 0
+        num_batches = 0
+        epoch_loss = 0
+        grad_accu = {key: np.zeros_like(value) for key, value in params.items()}
+
+        for sample_idx in range(num_samples):
+            # Forward pass for a single training sample
+            input_sample = X_train[sample_idx, :].reshape(-1, 1)
+            label_sample = Y_train[sample_idx, :].reshape(-1, 1)
+            gradients = backward_propagation(input_sample, label_sample, activation, num_layers, params, input_dim,weight_decay)
+
+            # Accumulate gradients over the batch
+            for layer in range(num_layers + 1, 0, -1):
+                grad_accu[f'W{layer}'] += gradients[f'W{layer}']
+                grad_accu[f'b{layer}'] += gradients[f'b{layer}']
+
+            num_processed += 1
+            if num_processed % batch_size == 0:
+                time_step += 1
+                num_batches += 1
+
+                # Compute momentum estimates
+                for layer in range(1, num_layers + 2):
+                    momentum[f'W{layer}'] = beta1 *prev_m[f'W{layer}'] + (1-beta1)*grad_accu[f'W{layer}']
+                    momentum[f'b{layer}'] = beta1 *prev_m[f'b{layer}'] + (1-beta1)*grad_accu[f'b{layer}']
+
+                # Bias-corrected momentum
+                    m_hat[f'W{layer}'] = momentum[f'W{layer}'] / (1-np.power(beta1, time_step))
+                    m_hat[f'b{layer}'] = momentum[f'b{layer}'] / (1-np.power(beta1, time_step))
+                    prev_m[f'W{layer}'] = momentum[f'W{layer}']
+                    prev_m[f'b{layer}'] = momentum[f'b{layer}']
+
+                # Compute velocity estimates
+                    velocity[f'W{layer}'] = beta2 * prev_v[f'W{layer}'] + (1-beta2) * (grad_accu[f'W{layer}']**2)
+                    velocity[f'b{layer}'] = beta2 * prev_v[f'b{layer}'] + (1-beta2) * (grad_accu[f'b{layer}']**2)
+
+                # Bias-corrected velocity
+                    v_hat[f'W{layer}'] = velocity[f'W{layer}'] / (1-np.power(beta2, time_step))
+                    v_hat[f'b{layer}'] = velocity[f'b{layer}'] / (1-np.power(beta2, time_step))
+                    prev_v[f'W{layer}'] = velocity[f'W{layer}']
+                    prev_v[f'b{layer}'] = velocity[f'b{layer}']
+
+                # Update parameters using Nadam update rule
+                    params[f'W{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'W{layer}'])+epsilon)) * (beta1*m_hat[f'W{layer}'] + (1-beta1)*grad_accu[f'W{layer}']/(1-np.power(beta1, time_step)))
+                    params[f'b{layer}'] -= (learning_rate/(np.sqrt(v_hat[f'b{layer}'])+epsilon)) * (beta1*m_hat[f'b{layer}'] + (1-beta1)*grad_accu[f'b{layer}']/(1-np.power(beta1, time_step)))
+
+        # Compute training accuracy after epoch completion
+        train_acc = compute_accuracy(X_train, Y_train, params, activation, num_layers, input_dim)
+
+        # Compute training loss using cross-entropy
+        act, out, train_preds = forward_propagation(X_train.T, params, activation, num_layers, input_dim)
+        train_loss = mse_loss(Y_train.T, train_preds, params, weight_decay, num_layers)
+        train_losses.append(train_loss)  # Store loss for visualization
+
+        # Compute test accuracy
+        test_acc = compute_accuracy(X_test, Y_test, params, activation, num_layers, input_dim)
+
+        # Compute test loss using cross-entropy
+        act, out, test_preds = forward_propagation(X_test.T, params, activation, num_layers, input_dim)
+        test_loss = mse_loss(Y_test.T, test_preds, params, weight_decay, num_layers)
+        test_losses.append(test_loss)  # Store loss for visualization
+
+
+        # Print epoch summary
+        print(f"Epoch {epoch+1}, Train_loss: {train_loss:.4f}, Train_accuracy: {train_acc * 100:.2f}%, Test_loss: {test_loss:.4f}, Test_accuracy: {test_acc * 100:.2f}%")
+
+
+    # Plot the loss function over epochs
+    plt.plot(train_losses, label="Training Loss")
+    plt.plot(test_losses, label="Test Loss")
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Losses over Epochs')
+    plt.show()
+
+    return params
+
+# Best hyperparameters after tuning with wandb
+epochs=10
+batch_size=64
+learning_rate=0.0001
+beta=0.9
+beta1=0.9
+beta2=0.99
+epsilon=0.000001
+num_layers=5
+num_neurons=128
+input_dim=784
+output_dim=10
+weight_decay=0.0
+weight_init='xavier'
+activation='relu'
+
+# Initialize the network with random weights based on the chosen weight initialization method
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+
+parameters = rmsprop_opt_mse(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,weight_decay)
+
+parameters = adam_opt_mse(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay)
+
+parameters = nadam_opt_mse(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay)
+
+"""## Question-10 : Best three hyperparameter configurations for the MNSIT dataset"""
+
+from keras.datasets import mnist
+
+# Load the Fashion-MNIST dataset
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+
+# Flatten the images (convert 28x28 matrices into 1D arrays of size 784)
+# Normalize pixel values to the range [0,1] by dividing by 255
+X_train = x_train.reshape(x_train.shape[0], -1) / 255
+X_test = x_test.reshape(x_test.shape[0], -1) / 255
+
+def one_hot_encod(arr):
+    """ Convert class labels to one-hot encoded vectors.
+    Args: arr (numpy array): Array of class labels (e.g., [0, 1, 2, ..., 9])
+
+    Returns: numpy array: One-hot encoded matrix of shape (len(arr), 10)
+    """
+    mat = np.zeros((len(arr), 10))  # Create a matrix of zeros with shape (num_samples, num_classes)
+    for i in range(len(arr)):
+        mat[i, arr[i]] = 1  # Set the corresponding class index to 1
+    return mat
+
+# Convert labels to one-hot encoding for training, validation, and test sets
+Y_train = one_hot_encod(y_train)
+Y_test = one_hot_encod(y_test)
+
+"""NADAM Optimizer"""
+
+# Best hyperparameters after tuning with wandb
+epochs=10
+batch_size=32
+learning_rate=0.0001
+beta=0.9
+beta1=0.9
+beta2=0.99
+epsilon=0.000001
+num_layers=4
+num_neurons=64
+input_dim=784
+output_dim=10
+weight_decay=0.0
+weight_init='xavier'
+activation='relu'
+
+# Initialize the network with random weights based on the chosen weight initialization method
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+
+# Nadam optimizer (Adam with Nesterov momentum)
+parameters = nadam_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay)
+
+"""ADAM Optimizer
+
+"""
+
+# Best hyperparameters after tuning with wandb
+epochs=10
+batch_size=64
+learning_rate=0.0001
+beta=0.9
+beta1=0.9
+beta2=0.99
+epsilon=0.000001
+num_layers=5
+num_neurons=64
+input_dim=784
+output_dim=10
+weight_decay=0.0
+weight_init='xavier'
+activation='relu'
+
+# Initialize the network with random weights based on the chosen weight initialization method
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+parameters = adam_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta1, beta2,weight_decay)
+
+"""RMSprop Optimizer"""
+
+# Best hyperparameters after tuning with wandb
+epochs=10
+batch_size=64
+learning_rate=0.0001
+beta=0.9
+beta1=0.9
+beta2=0.99
+epsilon=0.000001
+num_layers=5
+num_neurons=128
+input_dim=784
+output_dim=10
+weight_decay=0.0
+weight_init='xavier'
+activation='relu'
+
+# Initialize the network with random weights based on the chosen weight initialization method
+params = initialize_network(num_layers, num_neurons, weight_init, input_dim, output_dim)
+parameters = rmsprop_opt(learning_rate, params, X_train, Y_train, X_test, Y_test, activation, epochs, num_layers, input_dim, batch_size, epsilon, beta,weight_decay)
 
