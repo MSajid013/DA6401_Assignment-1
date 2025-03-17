@@ -1,6 +1,5 @@
 ## DA6401_Assignment-1
 # Question-1: Overview
-
 The code initializes a WandB project (DA6401_Assignment-1) to track and visualize data. It loads the Fashion-MNIST dataset, which has images of ten different clothing items and picks one sample image for each class. A function (plot_sample) is defined to randomly select and show seven images with their labels. Then these images are uploaded to WandB for visualization. At the end, the Wandb session is closed.
 
 Dataset: The Fashion MNIST dataset consists of grayscale images of ten different classes of clothing items:
@@ -26,5 +25,18 @@ Features:
 3. Used two weight initialization ('random' or 'xavier') which initializes weights and biases using either 'random' or 'xavier' initialization..
 4. Implements forward propagation through hidden layers to compute activations and final output layer using softmax to compute predictions.
 
-Then loads Fashion MNIST data and preprocesses it by normalizing and flattening images, and converts labels into one-hot encoded format. After that initializes the neural network with 5 hidden layers and 128 neurons per layer, then runs forward propagation on a single sample and outputs the predicted class probabilities.
+Then loads Fashion MNIST data and preprocesses it by normalizing and flattening images, and converts labels into one-hot encoded format. After that initializes the neural network with 5 hidden layers, 128 neurons per layer and 'xavier' weight initialization, then runs forward propagation with 'sigmoid' activation on a single sample and outputs the predicted class probabilities.
 
+# Question-3: Overview
+Implements cross-entropy loss computation, backward propagation and accuracy evaluation for training a multi-layer neural network. 
+1. Compute Cross-Entropy Loss (cross_entropy_loss): This function calculates the cross-entropy loss for multi-class classification with L2 regularization (weight decay) to prevent overfitting.
+
+2. Backward Propagation (backward_propagation): The backpropagation algorithm computes gradients for weights and biases by propagating errors backward through the network and support for the following optimisation functions:
+* Stochastic Gradient Descent (stochastic_gd)
+* Momentum Based Gradient Descent (momentum_optimizer)
+* Nesterov Accelerated Gradient Descent (nag_optimizer)
+* RMSprop (rmsprop_optimizer)
+* ADAM (adam_optimizer)
+* NADAM (nadam_optimizer)
+
+3. Compute Accuracy (compute_accuracy): Evaluates the classification accuracy of the model (ratio of correct predictions to total samples).
