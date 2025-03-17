@@ -40,3 +40,31 @@ Implements cross-entropy loss computation, backward propagation and accuracy eva
 * NADAM (nadam_optimizer)
 
 3. Compute Accuracy (compute_accuracy): Evaluates the classification accuracy of the model (ratio of correct predictions to total samples).
+
+# Question-4: Overview
+The model is trained with various optimizers, activation functions and hyperparameter settings through a Bayesian sweep. It trains a neural network on the Fashion MNIST dataset and optimizes its hyperparameters using Weights & Biases (WandB). 
+
+Used the standard train/test split of fashion_mnist ( (X_train, y_train), (X_test, y_test) = fashion_mnist.load_data() ). Kept 10% of the training data aside as validation data for this hyperparameter search. The images are flattened into 1D arrays of size 784, pixel values are normalized to the range [0,1] and labels are one-hot encoded for multi-class classification.
+
+Model Training Function: train_model() : This function trains a neural network with customizable hyperparameters:
+
+Sweep Configuration: Used Bayesian optimization method to efficiently search the hyperparameter space. The parameters tested include:
+* Epochs: [5, 10]
+* Number of layers: [3, 4, 5]
+* Neurons per layer: [32, 64, 128]
+* Learning rate: [0.001, 0.0001]
+* Batch size: [16, 32, 64]
+* Optimizers: ['sgd', 'momentum', 'nesterov', 'rmsprop', 'adam', 'nadam']
+* Activation functions: ['sigmoid', 'relu', 'tanh']
+* Weight initialization: ['random', 'xavier']
+  
+Then initialized the sweep using wandb.sweep(sweep_config, project='DA6401_Assignment-1') with sweep name (sweep cross entropy now), the main() function retrieves hyperparameter values assigned by WandB and trains the model and the wandb.agent(sweep_id, function=main, count=100) command runs 100 training jobs with different hyperparameter combinations.
+
+After that, getting higher accuracy with 10 epochs, [4,5] number of layers, [64, 128] neurons per layer, [32, 64] batch size, ['rmsprop', 'adam', 'nadam'] optimizers, ['sigmoid', 'relu'] activation functions and 'xavier' weight initialization. So again initialized the sweep using wandb.sweep(sweep_config, project='DA6401_Assignment-1') with sweep name (sweep cross entropy later) with above configuration and the wandb.agent(sweep_id, function=main, count=50) command runs 50 training jobs with different hyperparameter combinations.
+
+
+
+
+
+
+
