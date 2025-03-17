@@ -2,6 +2,8 @@
 
  WandB Report Link: https://wandb.ai/ma23m013-iit-madras/DA6401_Assignment-1/reports/MA23M013-Muhammad-Sajid-DA6401_Assignment-1--VmlldzoxMTU0MTIxOQ?accessToken=3o71ivdov03hu4x07y46rkaw7xb2teoim93h4757gkjv2thafb3yja9x7a34rn88
 
+ GitHub Repo Link: https://github.com/MSajid013/DA6401_Assignment-1
+
 # Question-1: Overview
 The code initializes a WandB project (DA6401_Assignment-1) to track and visualize data. It loads the Fashion-MNIST dataset, which has images of ten different clothing items and picks one sample image for each class. A function (plot_sample) is defined to randomly select and show seven images with their labels. Then these images are uploaded to WandB for visualization. At the end, the Wandb session is closed.
 
