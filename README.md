@@ -52,6 +52,7 @@ Sweep Configuration: Used Bayesian optimization method to efficiently search the
 * Epochs: [5, 10]
 * Number of layers: [3, 4, 5]
 * Neurons per layer: [32, 64, 128]
+* weight decay (L2 regularisation): [0, 0.0005, 0.5]
 * Learning rate: [0.001, 0.0001]
 * Batch size: [16, 32, 64]
 * Optimizers: ['sgd', 'momentum', 'nesterov', 'rmsprop', 'adam', 'nadam']
@@ -62,6 +63,26 @@ Then initialized the sweep using wandb.sweep(sweep_config, project='DA6401_Assig
 
 After that, getting higher accuracy with 10 epochs, [4,5] number of layers, [64, 128] neurons per layer, [32, 64] batch size, ['rmsprop', 'adam', 'nadam'] optimizers, ['sigmoid', 'relu'] activation functions and 'xavier' weight initialization. So again initialized the sweep using wandb.sweep(sweep_config, project='DA6401_Assignment-1') with sweep name (sweep cross entropy later) with above configuration and the wandb.agent(sweep_id, function=main, count=50) command runs 50 training jobs with different hyperparameter combinations.
 
+# Question-5: Overview
+Got 87.433% best accuracy on the validation set with hyperparameters (10 epochs, 5 number of layers, 64 neurons per layer, 0.0005 regularisation, 0.0001 learning rate, 64 batch size, 'rmsprop' optimizers, 'relu' activation functions and 'xavier' weight initialization) which is shown in the attached plot in WandB report.
+
+# Question-6: Overview
+Attached "Parallel co-ordinates plot" and "correlation summary" and wrote my observations in the WandB report.
+
+# Question-7: Overview
+Used NADAM, ADAM and RMSprop optimizers for computing test accuracy with best hyperparameters and got 86.51% highest test accuracy with RMSprop optimizer, 'relu' activation and 'xavier' weight initialization.
+
+Plotted the confusion matrix with RMSprop optimiser, 'relu' activation and 'xavier' weight initialization. Mentioned these hyperparameters in WandB report.
+
+# Question-8: Overview
+Compared the cross entropy loss with the squared error loss by plotting the loss over epochs. Used NADAM, ADAM and RMSprop optimizers for computing training accuracy and test accuracy with best hyperparameters.
+Same configuration used in question-7 as well and can be compared that, getting slightly higher accuracy with cross entropy loss. I Mentioned these configurations in the WandB report.
+
+# Question-9: Overview
+Attached my github repo link in the WandB report.
+
+# Question-10: Overview
+After tuning with WandB, Used 3 best hyperparameter configurations for MNIST dataset. Got 96.73% highest test accuracy on MNIST dataset. Mentioned these hyperparameter configurations and reported all accuracies with these configurations in the WandB report.
 
 
 
